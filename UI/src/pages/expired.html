@@ -1,0 +1,115 @@
+          <template x-if="page === 'expired'">
+            <div x-data="expiredPage()" @open-expired-form.window="openForm()" class="mx-auto max-w-4xl space-y-6">
+              <div x-show="toastMessage" x-transition class="fixed right-3 top-3 z-[90] max-w-[calc(100vw-1.5rem)] rounded-lg bg-brand-primary px-4 py-3 text-sm font-semibold text-white shadow-lg" x-text="toastMessage"></div>
+
+              <!-- Filter bulan & tahun expired -->
+              <section class="rounded-container border border-brand-border bg-brand-surface p-3 shadow-card">
+                <div class="w-full sm:w-72">
+                  <span class="block text-xs font-semibold text-brand-text">Tanggal expired</span>
+                  <div x-data="monthYearPicker(false)" x-modelable="value" x-model="monthFilter" @month-picker-change.window="visibleCount = 10" class="mt-1"></div>
+                </div>
+              </section>
+
+              <!-- List expired -->
+              <section class="overflow-hidden rounded-container border border-brand-border bg-brand-surface shadow-card">
+                <div class="divide-y divide-brand-border">
+                  <template x-for="row in visibleExpired" :key="row.id">
+                    <button type="button" @click="openDetail(row)" class="w-full px-4 py-3 text-left transition-colors hover:bg-brand-primary-tint/30 sm:px-6">
+                      <span class="block truncate text-sm font-semibold text-brand-text" x-text="row.nama"></span>
+                      <span class="mt-0.5 block text-xs font-tabular text-brand-secondary" x-text="formatDate(row.tanggalExpired)"></span>
+                    </button>
+                  </template>
+                  <div x-show="visibleExpired.length === 0" class="px-4 py-10 text-center text-sm font-medium text-brand-secondary" x-text="emptyStateMessage"></div>
+                </div>
+                <div x-show="hasMore" class="flex justify-center border-t border-brand-border bg-brand-bg p-4">
+                  <button type="button" @click="loadMore()" class="h-10 rounded-full border border-brand-border bg-brand-surface px-5 text-xs font-bold text-brand-primary shadow-card transition hover:bg-brand-primary-tint">Load more</button>
+                </div>
+              </section>
+
+              <!-- Detail expired -->
+              <div x-show="isDetailOpen" x-transition.opacity @click.self="closeDetail()" class="fixed inset-0 z-[50] flex items-center justify-center bg-gray-900/60 p-3 backdrop-blur-sm sm:p-4">
+                <div x-ref="expiredDetailScroll" @click.away="closeDetail()" class="max-h-[90dvh] w-full max-w-md overflow-y-auto rounded-container border border-brand-border bg-brand-surface shadow-2xl">
+                  <div class="sticky top-0 z-10 flex items-center gap-2 border-b border-brand-border bg-brand-bg p-3 sm:p-4">
+                    <button type="button" @click="closeDetail()" aria-label="Kembali" class="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-std text-brand-secondary hover:bg-white">
+                      <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 19l-7-7m0 0l7-7m-7 7h18" /></svg>
+                    </button>
+                    <h3 class="min-w-0 flex-1 truncate text-base font-bold text-brand-text" x-text="selectedExpired ? selectedExpired.nama : ''"></h3>
+                  </div>
+                  <div class="space-y-4 p-4 text-sm sm:p-5">
+                    <dl class="space-y-3">
+                      <div class="flex justify-between gap-3"><dt class="text-brand-secondary">Jumlah</dt><dd class="text-right font-semibold font-tabular" x-text="selectedExpired ? formatRibuan(selectedExpired.jumlah) + ' ' + selectedExpired.satuan : '-'"></dd></div>
+                      <div class="flex justify-between gap-3"><dt class="text-brand-secondary">Tanggal faktur</dt><dd class="text-right font-semibold" x-text="selectedExpired ? formatDate(selectedExpired.tanggalFaktur) : '-'"></dd></div>
+                      <div class="flex justify-between gap-3"><dt class="text-brand-secondary">Tanggal expired</dt><dd class="text-right font-semibold" x-text="selectedExpired ? formatDate(selectedExpired.tanggalExpired) : '-'"></dd></div>
+                      <div class="flex justify-between gap-3"><dt class="text-brand-secondary">Distributor</dt><dd class="max-w-[60%] text-right font-semibold" x-text="selectedExpired ? selectedExpired.distributorNama : '-'"></dd></div>
+                      <div class="flex justify-between gap-3"><dt class="text-brand-secondary">Faktur</dt><dd class="text-right font-semibold font-tabular" x-text="selectedExpired ? selectedExpired.nomorFaktur : '-'"></dd></div>
+                      <div class="flex justify-between gap-3"><dt class="text-brand-secondary">Batch</dt><dd class="text-right font-semibold" x-text="selectedExpired ? selectedExpired.batch : '-'"></dd></div>
+                      <div class="flex justify-between gap-3"><dt class="text-brand-secondary">Status</dt><dd class="text-right font-semibold" x-text="selectedExpired ? processedLabel(selectedExpired) : '-'"></dd></div>
+                    </dl>
+                    <div class="flex flex-wrap justify-end gap-2 border-t border-brand-border pt-3">
+                      <button type="button" @click="openSourceInvoice()" :disabled="!selectedExpired || selectedExpired.invoiceId === ''" class="h-10 rounded-action border border-brand-border bg-brand-surface px-4 text-sm font-semibold text-brand-primary disabled:cursor-not-allowed disabled:text-brand-disabled">Buka Faktur Orderan</button>
+                    </div>
+                    <p class="border-t border-brand-border pt-3 text-xs leading-5 text-brand-secondary">Data ini berasal dari modul Faktur Orderan dan hanya dapat dibaca di sini.</p>
+                  </div>
+                </div>
+              </div>
+
+              <!-- Formulir expired -->
+              <div x-show="isFormOpen" x-transition.opacity @click.self="closeForm()" class="fixed inset-0 z-[50] flex items-center justify-center bg-gray-900/60 p-3 backdrop-blur-sm sm:p-4">
+                <div x-ref="expiredFormScroll" class="max-h-[92dvh] w-full max-w-lg overflow-y-auto rounded-container border border-brand-border bg-brand-surface shadow-2xl">
+                  <div class="sticky top-0 z-10 flex items-center gap-2 border-b border-brand-border bg-brand-bg p-3 sm:p-4">
+                    <button type="button" @click="closeForm()" aria-label="Kembali" class="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-std text-brand-secondary hover:bg-white">
+                      <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 19l-7-7m0 0l7-7m-7 7h18" /></svg>
+                    </button>
+                    <h3 class="text-sm font-bold text-brand-text">Barang expired</h3>
+                  </div>
+                  <form @submit.prevent="saveTransaction()" class="space-y-4 p-4 sm:p-5">
+                    <div class="relative" @click.outside="closeProductDropdown()" @keydown.escape.stop.prevent="closeProductDropdown()">
+                      <span class="block text-xs font-semibold text-brand-text">Nama barang <span class="text-brand-error">*</span></span>
+                      <input type="search" x-model="productQuery" @focus="if (!productDropdownOpen) toggleProductDropdown()" @input="productDropdownOpen = true; formError = ''" @keydown.escape.stop.prevent="closeProductDropdown()" autocomplete="off" placeholder="Cari nama barang" aria-label="Nama barang" :aria-expanded="productDropdownOpen" class="mt-1 h-10 w-full rounded-std border border-brand-border bg-brand-surface px-3 py-2 text-sm font-normal text-brand-text focus-ring">
+                      <div x-show="productDropdownOpen" x-transition.opacity role="listbox" class="absolute left-0 top-full z-50 mt-1 max-h-60 w-full overflow-y-auto rounded-md border border-brand-border bg-white p-1 text-sm text-brand-text shadow-lg">
+                        <template x-for="product in filteredProductOptions" :key="productId(product)">
+                          <button type="button" role="option" :aria-selected="String(formData.productId) === String(productId(product))" @click="selectProduct(product)" :class="String(formData.productId) === String(productId(product)) ? 'bg-brand-primary text-white' : 'text-brand-text hover:bg-brand-bg'" class="min-h-10 w-full rounded px-3 py-2 text-left text-sm" x-text="productName(product)"></button>
+                        </template>
+                        <div x-show="filteredProductOptions.length === 0" class="px-3 py-2 text-sm text-brand-secondary">Barang tidak ditemukan</div>
+                      </div>
+                    </div>
+                    <div class="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                      <label class="block text-xs font-semibold text-brand-text">Jumlah <span class="text-brand-error">*</span>
+                        <input type="text" inputmode="numeric" x-model="formData.jumlah" placeholder="0" class="mt-1 h-10 w-full rounded-std border border-brand-border bg-brand-surface px-3 py-2 text-sm font-normal text-brand-text focus-ring">
+                      </label>
+                      <label class="block text-xs font-semibold text-brand-text">Satuan
+                        <input type="text" x-model="formData.satuan" readonly aria-readonly="true" placeholder="Tablet" class="mt-1 h-10 w-full rounded-std border border-brand-border bg-gray-100 px-3 py-2 text-sm font-normal text-brand-text cursor-not-allowed focus-ring">
+                      </label>
+                    </div>
+                    <div>
+                      <span class="block text-xs font-semibold text-brand-text">Tindakan <span class="text-brand-error">*</span></span>
+                      <div class="mt-2 flex gap-4">
+                        <label class="inline-flex items-center gap-2 cursor-pointer"><input type="radio" value="Pemusnahan" x-model="formData.tindakan" class="h-4 w-4 text-brand-primary focus-ring"><span class="text-sm text-brand-text">Pemusnahan</span></label>
+                        <label class="inline-flex items-center gap-2 cursor-pointer"><input type="radio" value="Retur" x-model="formData.tindakan" class="h-4 w-4 text-brand-primary focus-ring"><span class="text-sm text-brand-text">Retur</span></label>
+                      </div>
+                    </div>
+                    <label class="block text-xs font-semibold text-brand-text">Tanggal <span class="text-brand-error">*</span>
+                      <div x-data="compactDatePicker(true)" x-modelable="value" x-model="formData.tanggal" @keydown.escape.stop.prevent="close()"></div>
+                    </label>
+                    <label class="block text-xs font-semibold text-brand-text">Batch
+                      <input type="text" x-model="formData.batch" placeholder="Nomor batch" class="mt-1 h-10 w-full rounded-std border border-brand-border bg-brand-surface px-3 py-2 text-sm font-normal text-brand-text focus-ring">
+                    </label>
+                    <label class="block text-xs font-semibold text-brand-text">Faktur
+                      <input type="text" x-model="formData.nomorFaktur" @input="formData.nomorFaktur = formData.nomorFaktur.toLocaleUpperCase('id')" placeholder="ABC123" class="mt-1 h-10 w-full rounded-std border border-brand-border bg-brand-surface px-3 py-2 text-sm font-normal uppercase text-brand-text focus-ring">
+                    </label>
+                    <label class="block text-xs font-semibold text-brand-text">Distributor (opsional)
+                      <select x-model="formData.distributorId" class="mt-1 h-10 w-full rounded-std border border-brand-border bg-brand-surface px-3 py-2 text-sm font-normal text-brand-text focus-ring">
+                        <option value="">Pilih distributor</option>
+                        <template x-for="distributor in distributorOptions" :key="distributor.id"><option :value="distributor.id" x-text="distributor.nama"></option></template>
+                      </select>
+                    </label>
+                    <p x-show="formError" class="text-sm text-brand-error" x-text="formError"></p>
+                    <div class="flex justify-end gap-2 border-t border-brand-border pt-3">
+                      <button type="button" @click="closeForm()" class="h-10 rounded-action border border-brand-border bg-brand-surface px-4 text-sm font-semibold text-brand-secondary">cancel</button>
+                      <button type="submit" class="h-10 rounded-action bg-brand-accent px-5 text-sm font-bold text-white shadow-card transition hover:bg-[#E85A2E]">save</button>
+                    </div>
+                  </form>
+                </div>
+              </div>
+            </div>
+          </template>

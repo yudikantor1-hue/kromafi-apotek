@@ -1,0 +1,118 @@
+          <template x-if="page === 'petugas' && isAdmin">
+            <div x-data>
+              <button @click="$dispatch('open-petugas-form')" 
+                      class="h-10 bg-brand-accent hover:bg-[#E85A2E] active:scale-[0.98] text-white rounded-action px-4 flex items-center gap-2 font-semibold text-xs sm:text-sm shadow-card transition-all flex-shrink-0 whitespace-nowrap">
+                <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" viewBox="0 0 20 20" fill="currentColor">
+                  <path fill-rule="evenodd" d="M10 3a1 1 0 011 1v5h5a1 1 0 110 2h-5v5a1 1 0 11-2 0v-5H4a1 1 0 110-2h5V4a1 1 0 011-1z" clip-rule="evenodd" />
+                </svg>
+                <span class="hidden sm:inline">Tambah Petugas</span>
+              </button>
+            </div>
+          </template>
+          <template x-if="page === 'lemari'">
+            <div x-data>
+              <button @click="$dispatch('open-lemari-form')" 
+                      class="h-10 bg-brand-accent hover:bg-[#E85A2E] active:scale-[0.98] text-white rounded-action px-4 flex items-center gap-2 font-semibold text-xs sm:text-sm shadow-card transition-all flex-shrink-0 whitespace-nowrap">
+                <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" viewBox="0 0 20 20" fill="currentColor">
+                  <path fill-rule="evenodd" d="M10 3a1 1 0 011 1v5h5a1 1 0 110 2h-5v5a1 1 0 11-2 0v-5H4a1 1 0 110-2h5V4a1 1 0 011-1z" clip-rule="evenodd" />
+                </svg>
+                <span class="hidden sm:inline">tambah</span>
+              </button>
+            </div>
+          </template>
+
+          <template x-if="page === 'metode pembayaran'">
+            <div x-data>
+              <button @click="$dispatch('open-metode-pembayaran-form')" 
+                      class="h-10 bg-brand-accent hover:bg-[#E85A2E] active:scale-[0.98] text-white rounded-action px-4 flex items-center gap-2 font-semibold text-xs sm:text-sm shadow-card transition-all flex-shrink-0 whitespace-nowrap">
+                <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" viewBox="0 0 20 20" fill="currentColor">
+                  <path fill-rule="evenodd" d="M10 3a1 1 0 011 1v5h5a1 1 0 110 2h-5v5a1 1 0 11-2 0v-5H4a1 1 0 110-2h5V4a1 1 0 011-1z" clip-rule="evenodd" />
+                </svg>
+                <span class="hidden sm:inline">tambah</span>
+              </button>
+            </div>
+          </template>
+
+          <template x-if="page === 'dokter'">
+            <div x-data>
+              <button @click="$dispatch('open-dokter-form')" 
+                      class="h-10 bg-brand-accent hover:bg-[#E85A2E] active:scale-[0.98] text-white rounded-action px-4 flex items-center gap-2 font-semibold text-xs sm:text-sm shadow-card transition-all flex-shrink-0 whitespace-nowrap">
+                <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" viewBox="0 0 20 20" fill="currentColor">
+                  <path fill-rule="evenodd" d="M10 3a1 1 0 011 1v5h5a1 1 0 110 2h-5v5a1 1 0 11-2 0v-5H4a1 1 0 110-2h5V4a1 1 0 011-1z" clip-rule="evenodd" />
+                </svg>
+                <span class="hidden sm:inline">tambah</span>
+              </button>
+            </div>
+          </template>
+
+          <template x-if="page === 'distributor'">
+            <div x-data>
+              <button @click="$dispatch('open-distributor-form')"
+                      class="h-10 bg-brand-accent hover:bg-[#E85A2E] active:scale-[0.98] text-white rounded-action px-4 flex items-center gap-2 font-semibold text-xs sm:text-sm shadow-card transition-all flex-shrink-0 whitespace-nowrap">
+                <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" viewBox="0 0 20 20" fill="currentColor">
+                  <path fill-rule="evenodd" d="M10 3a1 1 0 011 1v5h5a1 1 0 110 2h-5v5a1 1 0 11-2 0v-5H4a1 1 0 110-2h5V4a1 1 0 011-1z" clip-rule="evenodd" />
+                </svg>
+                <span class="hidden sm:inline">tambah</span>
+              </button>
+            </div>
+          </template>
+
+          <template x-if="page === 'faktur orderan'">
+            <button @click="$dispatch('open-faktur-form')" class="h-10 bg-brand-accent hover:bg-[#E85A2E] active:scale-[0.98] text-white rounded-action px-4 flex items-center gap-2 font-semibold text-xs sm:text-sm shadow-card transition-all flex-shrink-0 whitespace-nowrap">
+              <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M10 3a1 1 0 011 1v5h5a1 1 0 110 2h-5v5a1 1 0 11-2 0v-5H4a1 1 0 110-2h5V4a1 1 0 011-1z" clip-rule="evenodd" /></svg>
+              <span class="hidden sm:inline">tambah</span>
+            </button>
+          </template>
+
+          <template x-if="page === 'penjualan'">
+            <button @click="$dispatch('open-penjualan-form')" class="h-10 bg-brand-accent hover:bg-[#E85A2E] active:scale-[0.98] text-white rounded-action px-4 flex items-center gap-2 font-semibold text-xs sm:text-sm shadow-card transition-all flex-shrink-0 whitespace-nowrap" title="Tambah penjualan" aria-label="Tambah penjualan">
+              <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M10 3a1 1 0 011 1v5h5a1 1 0 110 2h-5v5a1 1 0 11-2 0v-5H4a1 1 0 110-2h5V4a1 1 0 011-1z" clip-rule="evenodd" /></svg>
+              <span class="hidden sm:inline">tambah</span>
+            </button>
+          </template>
+          <template x-if="page === 'laporan'">
+            <button @click="$dispatch('open-laporan-form')" class="h-10 bg-brand-accent hover:bg-[#E85A2E] active:scale-[0.98] text-white rounded-action px-4 flex items-center gap-2 font-semibold text-xs sm:text-sm shadow-card transition-all flex-shrink-0 whitespace-nowrap" title="Buat laporan" aria-label="Buat laporan">
+              <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M10 3a1 1 0 011 1v5h5a1 1 0 110 2h-5v5a1 1 0 11-2 0v-5H4a1 1 0 110-2h5V4a1 1 0 011-1z" clip-rule="evenodd" /></svg>
+              <span class="hidden sm:inline">Buat laporan</span>
+            </button>
+          </template>
+
+          <template x-if="page === 'jasa'">
+            <div class="flex items-center gap-2">
+              <button type="button" @click="$dispatch('toggle-jasa-search')" title="Cari jasa" aria-label="Cari jasa" class="h-10 w-10 inline-flex flex-shrink-0 whitespace-nowrap items-center justify-center border border-brand-border bg-brand-surface text-brand-secondary hover:bg-brand-bg rounded-std transition">
+                <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <circle cx="11" cy="11" r="7" stroke-width="2" />
+                  <path stroke-linecap="round" stroke-width="2" d="m20 20-4-4" />
+                </svg>
+              </button>
+              <button @click="$dispatch('open-jasa-form')" class="h-10 bg-brand-accent hover:bg-[#E85A2E] active:scale-[0.98] text-white rounded-action px-4 flex items-center gap-2 font-semibold text-xs sm:text-sm shadow-card transition-all flex-shrink-0 whitespace-nowrap">
+                <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" viewBox="0 0 20 20" fill="currentColor">
+                  <path fill-rule="evenodd" d="M10 3a1 1 0 011 1v5h5a1 1 0 110 2h-5v5a1 1 0 11-2 0v-5H4a1 1 0 110-2h5V4a1 1 0 011-1z" clip-rule="evenodd" />
+                </svg>
+                <span class="hidden sm:inline">tambah</span>
+              </button>
+            </div>
+          </template>
+
+          <template x-if="page === 'barang'">
+            <div class="flex items-center gap-2">
+              <button type="button" @click="$dispatch('toggle-barang-search')" title="Cari barang" aria-label="Cari barang" class="h-10 w-10 inline-flex flex-shrink-0 whitespace-nowrap items-center justify-center border border-brand-border bg-brand-surface text-brand-secondary hover:bg-brand-bg rounded-std transition">
+                <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <circle cx="11" cy="11" r="7" stroke-width="2" />
+                  <path stroke-linecap="round" stroke-width="2" d="m20 20-4-4" />
+                </svg>
+              </button>
+              <button @click="$dispatch('open-barang-form')" class="h-10 bg-brand-accent hover:bg-[#E85A2E] active:scale-[0.98] text-white rounded-action px-4 flex items-center gap-2 font-semibold text-xs sm:text-sm shadow-card transition-all flex-shrink-0 whitespace-nowrap">
+                <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" viewBox="0 0 20 20" fill="currentColor">
+                  <path fill-rule="evenodd" d="M10 3a1 1 0 011 1v5h5a1 1 0 110 2h-5v5a1 1 0 11-2 0v-5H4a1 1 0 110-2h5V4a1 1 0 011-1z" clip-rule="evenodd" />
+                </svg>
+                <span class="hidden sm:inline">tambah</span>
+              </button>
+            </div>
+          </template>
+        <template x-if="page === 'expired'">
+            <button type="button" @click="$dispatch('open-expired-form')" class="h-10 bg-brand-accent hover:bg-[#E85A2E] active:scale-[0.98] text-white rounded-action px-4 flex items-center gap-2 font-semibold text-xs sm:text-sm shadow-card transition-all flex-shrink-0 whitespace-nowrap" title="Tambah transaksi expired" aria-label="Tambah transaksi expired">
+              <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M10 3a1 1 0 011 1v5h5a1 1 0 110 2h-5v5a1 1 0 11-2 0v-5H4a1 1 0 110-2h5V4a1 1 0 011-1z" clip-rule="evenodd" /></svg>
+              <span class="hidden sm:inline">tambah</span>
+            </button>
+          </template>

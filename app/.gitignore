@@ -1,0 +1,12 @@
+node_modules/
+dist/
+.wrangler/
+.dev.vars
+*.local
+coverage/
+# Database exports contain password hashes and staff data; never commit them.
+backups/
+*.sql
+# Migrations and the dev seed are source code, not data exports.
+!worker/migrations/*.sql
+!worker/seed/*.sql

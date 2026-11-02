@@ -1,0 +1,374 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Kromafi Apotek</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:ital,opsz,wght@0,14..32,100..900;1,14..32,100..900&family=Plus+Jakarta+Sans:ital,wght@0,200..800;1,200..800&display=swap" rel="stylesheet">
+
+<script src="https://cdn.tailwindcss.com"></script>
+<script>
+  tailwind.config = {
+    theme: {
+      extend: {
+        colors: {
+          brand: {
+            bg: '#F6F7FB',
+            surface: '#FFFFFF',
+            border: '#E3E6EF',
+            primary: '#3B52E0',
+            'primary-dark': '#2A3BB8',
+            'primary-light': '#6E80F0',
+            'primary-tint': '#EEF0FE',
+            accent: '#FF6A3D',
+            text: '#171A2B',
+            secondary: '#5B6072',
+            muted: '#9AA0B4',
+            disabled: '#C3C7D4',
+            'disabled-bg': '#F1F2F6',
+            success: '#16A34A',
+            warning: '#F59E0B',
+            info: '#2563EB',
+            error: '#DC2626',
+          }
+        },
+        fontFamily: {
+          sans: ['"Plus Jakarta Sans"', 'sans-serif'],
+          numeric: ['Inter', 'sans-serif'],
+        },
+        boxShadow: {
+          'card': '0 2px 8px rgba(23, 26, 43, 0.06)',
+          'hover': '0 8px 24px rgba(23, 26, 43, 0.12)',
+          'modal': '0 16px 48px rgba(23, 26, 43, 0.18)',
+        },
+        borderRadius: {
+          'micro': '4px',
+          'std': '8px',
+          'action': '12px',
+          'container': '16px',
+          'dialog': '24px',
+        }
+      }
+    }
+  }
+</script>
+<style>
+/* include: css/app.css */
+</style>
+
+</head>
+<body class="bg-brand-bg text-brand-text font-sans h-screen w-full flex overflow-hidden antialiased" x-data="app()" @tagihan-open-invoice-detail.window="openInvoiceFromTagihan($event.detail)" x-cloak>
+
+  <!-- ======================= -->
+  <!-- 1. HALAMAN LOGIN        -->
+  <!-- ======================= -->
+  <template x-if="page === 'login'">
+    <div class="flex-1 flex flex-col items-center justify-center p-4 sm:p-6 bg-brand-bg min-h-screen">
+      <div class="bg-brand-surface p-8 rounded-container shadow-card border border-brand-border w-full max-w-sm transition-all">
+        <!-- Logo & Title -->
+        <div class="flex flex-col items-center mb-6">
+          <div class="w-12 h-12 bg-brand-primary-tint rounded-action flex items-center justify-center mb-3">
+            <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6 text-brand-primary" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4" />
+            </svg>
+          </div>
+          <h2 class="text-2xl font-bold text-brand-text tracking-tight text-center">Kromafi Apotek</h2>
+          <p class="text-xs text-brand-secondary mt-1 text-center">Point of Sale & Clinical Inventory System</p>
+        </div>
+
+        <form @submit.prevent="login()" class="space-y-4">
+          <div>
+            <label class="block text-[13px] font-semibold text-brand-text mb-1.5">Email</label>
+            <input type="email" 
+                   x-model="loginEmail"
+                   @input="loginError = ''"
+                   class="w-full h-11 px-3.5 bg-brand-surface border border-brand-border rounded-std text-sm text-brand-text placeholder-brand-muted focus-ring transition" 
+                   placeholder="Masukkan email" 
+                   autocomplete="email"
+                   required>
+          </div>
+          
+          <div>
+            <label class="block text-[13px] font-semibold text-brand-text mb-1.5">Password</label>
+            <div class="relative">
+              <input :type="showPassword ? 'text' : 'password'" 
+                     x-model="loginPassword"
+                     @input="loginError = ''"
+                     class="w-full h-11 px-3.5 bg-brand-surface border border-brand-border rounded-std text-sm text-brand-text placeholder-brand-muted focus-ring transition pr-10" 
+                     placeholder="Masukkan password" 
+                     autocomplete="current-password"
+                     required>
+              <button type="button" @click="showPassword = !showPassword" :aria-label="showPassword ? 'Sembunyikan password' : 'Tampilkan password'" :aria-pressed="showPassword" :class="showPassword ? 'text-brand-primary' : 'text-brand-muted hover:text-brand-secondary'" class="absolute inset-y-0 right-0 px-3 flex items-center transition">
+                <svg x-show="!showPassword" xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
+                  <path d="M10 12a2 2 0 100-4 2 2 0 000 4z" />
+                  <path fill-rule="evenodd" d="M.458 10C1.732 5.943 5.522 3 10 3s8.268 2.943 9.542 7c-1.274 4.057-5.064 7-9.542 7S1.732 14.057.458 10zM14 10a4 4 0 11-8 0 4 4 0 018 0z" clip-rule="evenodd" />
+                </svg>
+                <svg x-show="showPassword" xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
+                  <path d="M3.707 2.293a1 1 0 00-1.414 1.414l14 14a1 1 0 001.414-1.414l-1.473-1.473A10.014 10.014 0 0019.542 10C18.268 5.943 14.478 3 10 3a9.958 9.958 0 00-4.512 1.074l-1.78-1.781zm4.261 4.26l1.514 1.515a2.003 2.003 0 012.45 2.45l1.514 1.514a4 4 0 00-5.478-5.478z" />
+                  <path d="M12.454 16.697L9.75 13.992a4 4 0 01-3.742-3.741L2.335 6.578A9.98 9.98 0 00.458 10c1.274 4.057 5.065 7 9.542 7 .847 0 1.669-.105 2.454-.303z" />
+                </svg>
+              </button>
+            </div>
+          </div>
+
+          <p x-show="loginError" x-transition role="alert" class="rounded-std border border-brand-error/30 bg-red-50 px-3 py-2 text-xs font-semibold text-brand-error" x-text="loginError"></p>
+
+          <!-- Primary CTA per DESIGN.md: #FF6A3D -->
+          <button type="submit"
+                  :disabled="!accountsReady || isLoggingIn"
+                  class="w-full h-11 bg-brand-accent hover:bg-[#E85A2E] active:scale-[0.98] text-white font-semibold text-sm rounded-action shadow-card transition-all duration-150 flex items-center justify-center mt-2">
+            <span x-text="isLoggingIn ? 'Memeriksa...' : 'Login'"></span>
+          </button>
+          <button type="button" @click="openForgotPassword()" class="w-full text-center text-xs font-semibold text-brand-primary hover:underline">
+            Lupa password?
+          </button>
+        </form>
+      </div>
+      <div x-show="isForgotPasswordOpen" x-transition.opacity @click.self="closeForgotPassword()" class="fixed inset-0 z-50 flex items-center justify-center bg-gray-900/60 p-4 backdrop-blur-sm">
+        <div @click.away="closeForgotPassword()" class="w-full max-w-sm rounded-container border border-brand-border bg-brand-surface p-5 shadow-2xl">
+          <h3 class="text-base font-bold text-brand-text">Lupa password</h3>
+          <form x-show="forgotPasswordStep === 'email'" @submit.prevent="continueForgotPassword()" class="mt-4 space-y-4">
+            <label class="block text-xs font-semibold text-brand-text">Email akun
+              <input type="email" x-model="forgotPasswordEmail" required autocomplete="email" placeholder="nama@email.com" class="mt-1 h-10 w-full rounded-std border border-brand-border bg-brand-surface px-3 text-sm font-normal text-brand-text focus-ring">
+            </label>
+            <div class="flex justify-end gap-2">
+              <button type="button" @click="closeForgotPassword()" class="h-10 rounded-action border border-brand-border px-4 text-xs font-semibold text-brand-secondary">Batal</button>
+              <button type="submit" class="h-10 rounded-action bg-brand-primary px-4 text-xs font-bold text-white">Lanjutkan</button>
+            </div>
+          </form>
+          <div x-show="forgotPasswordStep === 'confirm'" class="mt-4 space-y-4">
+            <p class="text-sm leading-6 text-brand-secondary">Konfirmasi permintaan pengiriman tautan reset ke <strong class="break-all text-brand-text" x-text="forgotPasswordEmail"></strong>.</p>
+            <div class="flex justify-end gap-2">
+              <button type="button" @click="forgotPasswordStep = 'email'" class="h-10 rounded-action border border-brand-border px-4 text-xs font-semibold text-brand-secondary">Kembali</button>
+              <button type="button" @click="confirmForgotPassword()" class="h-10 rounded-action bg-brand-primary px-4 text-xs font-bold text-white">Konfirmasi</button>
+            </div>
+          </div>
+          <div x-show="forgotPasswordStep === 'unavailable'" class="mt-4 space-y-4">
+            <p role="alert" class="rounded-std border border-brand-warning/30 bg-amber-50 px-3 py-2 text-sm leading-6 text-brand-text" x-text="forgotPasswordMessage"></p>
+            <div class="flex justify-end">
+              <button type="button" @click="closeForgotPassword()" class="h-10 rounded-action bg-brand-primary px-4 text-xs font-bold text-white">Mengerti</button>
+            </div>
+          </div>
+        </div>
+      </div>
+      <p class="mt-6 text-xs text-brand-secondary font-medium">&copy; 2026 Kromafi Apotek. All rights reserved.</p>
+    </div>
+  </template>
+
+  <!-- ======================= -->
+  <!-- 2. MAIN APP LAYOUT      -->
+  <!-- ======================= -->
+  <template x-if="page !== 'login'">
+    <div class="flex-1 flex h-full relative overflow-hidden bg-brand-bg">
+      
+      <!-- Drawer Overlay (Mobile) -->
+      <div x-show="isDrawerOpen" 
+           x-transition.opacity.duration.200ms
+           @click="isDrawerOpen = false" 
+           class="fixed inset-0 bg-[#171A2B]/40 backdrop-blur-xs z-20 lg:hidden">
+      </div>
+
+      <!-- Drawer Sidebar (Persistent 240px on Desktop) -->
+      <div :class="isDrawerOpen ? 'translate-x-0' : '-translate-x-full'" 
+           class="fixed lg:static inset-y-0 left-0 w-[240px] bg-brand-surface border-r border-brand-border z-30 transform transition-transform duration-300 lg:translate-x-0 flex flex-col h-full shadow-modal lg:shadow-none shrink-0">
+        
+        <!-- Drawer Header -->
+        <div class="min-h-16 border-b border-brand-border bg-brand-surface shrink-0">
+          <div class="h-16 px-5 flex justify-between items-center">
+            <h1 class="truncate pr-3 font-bold text-sm tracking-tight text-brand-text leading-snug" x-text="pharmacyName || 'Kromafi Apotek'"></h1>
+          <button @click="isDrawerOpen = false" class="lg:hidden text-brand-secondary hover:text-brand-text p-1 rounded-std">
+            <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
+            </svg>
+          </button>
+          </div>
+          <div class="border-t border-brand-border px-[30px] py-2.5 text-xs font-medium text-brand-text truncate" x-text="activeStaffName"></div>
+          <div class="border-t border-brand-border px-[30px] py-2.5 text-xs text-brand-secondary truncate" x-text="activeStaffRole"></div>
+        </div>
+
+        <!-- Drawer Navigation List -->
+        <div class="flex-1 overflow-y-auto py-3 px-3 custom-scrollbar">
+          <nav class="space-y-1">
+            <template x-for="item in ['Penjualan', 'Faktur orderan', 'Tagihan', 'Barang', 'Jasa', 'Kartu stok', 'Barang minus', 'Stok opname', 'Expired', 'Forecast', 'Pareto', 'Laporan', 'Distributor', 'Dokter', 'Metode pembayaran', 'Lemari', 'Petugas', 'Profil apotek']">
+              <a href="#" 
+                 @click.prevent="page = item.toLowerCase(); isDrawerOpen = false"
+                 :class="page.toLowerCase() === item.toLowerCase() 
+                    ? 'bg-brand-primary-tint text-brand-primary font-bold border-l-[3.5px] border-brand-primary rounded-r-std rounded-l-none' 
+                    : 'text-brand-secondary hover:bg-brand-bg hover:text-brand-text font-medium border-l-[3.5px] border-transparent rounded-std'"
+                 class="flex items-center px-3.5 py-2.5 text-xs transition-colors">
+                <span x-text="item"></span>
+              </a>
+            </template>
+          </nav>
+        </div>
+
+        <!-- Drawer Footer (Logout) -->
+        <div class="p-3 border-t border-brand-border bg-brand-bg shrink-0">
+          <button @click="logout()" 
+                  class="w-full flex items-center justify-center gap-2 text-brand-error font-semibold text-xs hover:bg-red-50 py-2.5 rounded-std transition-colors">
+            <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1" />
+            </svg>
+            Logout
+          </button>
+        </div>
+      </div>
+
+      <!-- Main Content Area -->
+      <div class="flex-1 flex flex-col h-full overflow-hidden w-full min-w-0">
+        
+        <!-- Header (64px) -->
+        <header @update-header.window="headerTitle = $event.detail.title; headerMode = $event.detail.mode" 
+                class="h-16 bg-brand-surface border-b border-brand-border flex items-center gap-2 px-3 sm:px-4 shadow-card z-10 shrink-0">
+          <div class="flex flex-1 min-w-0 items-center gap-2">
+            <button @click="isDrawerOpen = true" class="lg:hidden flex-shrink-0 whitespace-nowrap p-2 text-brand-secondary hover:bg-brand-bg rounded-std focus-ring transition">
+              <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h16M4 18h16" />
+              </svg>
+            </button>
+            
+            <!-- Tombol Kembali jika di Detail / Form -->
+            <!-- Tombol Kembali (tidak diperlukan, detail sekarang pakai modal) -->
+
+            <h2 class="flex-1 min-w-0 text-lg sm:text-xl font-bold truncate text-brand-text capitalize" x-text="page"></h2>
+
+            <!-- Sync queue badge and sync action -->
+            <div class="flex shrink-0 items-center gap-1.5 sm:gap-2">
+              <span x-show="syncQueueCount > 0" x-transition class="inline-flex items-center gap-1 rounded-full bg-brand-primary-tint px-2 py-1 text-[11px] font-bold text-brand-primary" :title="syncQueueCount + ' transaksi menunggu dikirim ke pusat'" :aria-label="syncQueueCount + ' transaksi menunggu dikirim ke pusat'">
+                <svg xmlns="http://www.w3.org/2000/svg" class="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4l3 2m6-2a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
+                <span x-text="syncQueueCount"></span>
+              </span>
+              <button type="button" @click="syncNow()" class="inline-flex h-10 items-center gap-1.5 rounded-action border border-brand-border bg-brand-surface px-3 text-xs font-bold text-brand-primary transition hover:bg-brand-primary-tint" title="Kirim data ke pusat" aria-label="Kirim data ke pusat">
+                <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 0 0 4.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 0 1-15.357-2m15.357 2H15" /></svg>
+                <span class="hidden sm:inline">Sync</span>
+              </button>
+            </div>
+          </div>
+          
+          <!-- Context Action Button -->
+          <!-- include: pages/_header-actions.html -->
+        </header>
+
+        <!-- Sync feedback -->
+        <div x-show="syncNotice" x-transition role="status" class="fixed right-4 top-20 z-[90] max-w-xs rounded-xl bg-brand-text px-4 py-3 text-xs font-semibold text-white shadow-lg" x-text="syncNotice"></div>
+
+        <!-- Main Content Scrollable Canvas -->
+        <main class="flex-1 overflow-y-auto p-4 sm:p-6 lg:p-8 relative custom-scrollbar bg-brand-bg">
+          
+          <!-- ======================= -->
+          <!-- 3. HALAMAN PETUGAS      -->
+          <!-- ======================= -->
+          <!-- 3. HALAMAN PETUGAS      -->
+          <!-- ======================= -->
+          <!-- include: pages/petugas.html -->
+          <!-- include: pages/profil-apotek.html -->
+          <!-- include: pages/lemari.html -->
+          <!-- include: pages/metode-pembayaran.html -->
+          <!-- include: pages/dokter.html -->
+          <!-- include: pages/barang.html -->
+          <!-- include: pages/jasa.html -->
+          <!-- include: pages/distributor.html -->
+          <!-- include: pages/tagihan.html -->
+          <!-- include: pages/kartu-stok.html -->
+          <!-- include: pages/barang-minus.html -->
+          <!-- include: pages/stok-opname.html -->
+          <!-- include: pages/expired.html -->
+          <!-- include: pages/faktur-orderan.html -->
+          <!-- include: pages/penjualan.html -->
+          <!-- include: pages/pareto.html -->
+          <!-- include: pages/forecast.html -->
+          <!-- include: pages/laporan.html -->
+        </main>
+      </div>
+    </div>
+  </template>
+
+  <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.x.x/dist/cdn.min.js"></script>
+
+  <script>
+    /* include: js/core/store.js */
+    /* include: js/components/date-picker.js */
+    /* include: js/components/month-picker.js */
+    /* include: js/app.js */
+    /* include: js/pages/profil-apotek.js */
+    /* include: js/pages/petugas.js */
+    /* include: js/pages/lemari.js */
+    /* include: js/pages/metode-pembayaran.js */
+    /* include: js/pages/dokter.js */
+    /* include: js/pages/barang.js */
+    /* include: js/pages/barang-minus.js */
+    /* include: js/pages/stok-opname.js */
+    /* include: js/pages/jasa.js */
+    /* include: js/pages/penjualan.js */
+    /* include: js/pages/kartu-stok.js */
+    /* include: js/pages/expired.js */
+    /* include: js/pages/tagihan.js */
+    /* include: js/pages/faktur-orderan.js */
+    /* include: js/pages/pareto.js */
+    /* include: js/pages/forecast.js */
+    /* include: js/pages/laporan.js */
+    /* include: js/pages/distributor.js */
+  </script>
+
+  <template id="month-year-picker-template">
+    <div class="relative" @click.outside="close()" @keydown.escape.window.stop.prevent="close()">
+      <button type="button" role="combobox" @click="toggle()" @keydown.enter.prevent="toggle()" @keydown.space.prevent="toggle()" :aria-expanded="open" aria-haspopup="dialog" aria-label="Pilih bulan dan tahun" class="flex min-h-10 w-full items-center justify-between gap-2 rounded-std border border-brand-border bg-brand-surface px-3 py-2 text-left text-sm font-medium text-brand-text focus-ring">
+        <span class="min-w-0 truncate" x-text="displayValue"></span>
+        <svg class="h-4 w-4 shrink-0 text-brand-secondary" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true"><path fill-rule="evenodd" d="M5.22 7.47a.75.75 0 011.06 0L10 11.19l3.72-3.72a.75.75 0 111.06 1.06l-4.25 4.25a.75.75 0 01-1.06 0L5.22 8.53a.75.75 0 010-1.06z" clip-rule="evenodd"/></svg>
+      </button>
+      <div x-show="open" x-transition.opacity data-month-picker-panel role="dialog" aria-label="Pilih bulan dan tahun" @click.stop @keydown.escape.stop.prevent="close()" :style="panelStyle" class="fixed z-50 max-h-[300px] overflow-y-auto rounded-std border border-brand-border bg-white p-2 text-sm text-brand-text shadow-lg">
+        <div class="mb-2 flex items-center justify-between gap-1 border-b border-brand-border pb-2">
+          <button type="button" @click="moveYear(-1)" aria-label="Tahun sebelumnya" class="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-std text-brand-secondary hover:bg-brand-bg">
+            <svg class="h-4 w-4" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true"><path fill-rule="evenodd" d="M12.78 4.22a.75.75 0 010 1.06L8.06 10l4.72 4.72a.75.75 0 11-1.06 1.06l-5.25-5.25a.75.75 0 010-1.06l5.25-5.25a.75.75 0 011.06 0z" clip-rule="evenodd"/></svg>
+          </button>
+          <strong class="min-w-0 flex-1 truncate text-center text-sm font-semibold font-tabular" x-text="yearLabel"></strong>
+          <button type="button" @click="moveYear(1)" aria-label="Tahun berikutnya" class="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-std text-brand-secondary hover:bg-brand-bg">
+            <svg class="h-4 w-4" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true"><path fill-rule="evenodd" d="M7.22 4.22a.75.75 0 011.06 0l5.25 5.25a.75.75 0 010 1.06l-5.25 5.25a.75.75 0 11-1.06-1.06L11.94 10 7.22 5.28a.75.75 0 010-1.06z" clip-rule="evenodd"/></svg>
+          </button>
+        </div>
+        <div class="grid grid-cols-3 gap-1">
+          <template x-for="month in monthGrid" :key="month.value">
+            <button type="button" role="option" :aria-selected="month.selected" @click="chooseMonth(month)" :class="month.selected ? 'bg-brand-primary text-white' : month.isCurrent ? 'border border-brand-primary text-brand-primary' : 'text-brand-text hover:bg-brand-bg'" class="min-h-10 rounded-std px-2 py-2 text-sm" x-text="month.label"></button>
+          </template>
+        </div>
+        <div class="mt-2 border-t border-brand-border pt-2">
+          <button type="button" @click="chooseCurrentMonth()" class="h-10 w-full rounded-std px-3 py-2 text-sm font-semibold text-brand-primary hover:bg-brand-primary-tint">Bulan ini</button>
+        </div>
+      </div>
+    </div>
+  </template>
+  <template id="compact-date-picker-template">
+    <div class="relative" @click.outside="close()" @keydown.escape.window.stop.prevent="close()">
+      <input type="text" readonly :value="displayValue" :required="required" :disabled="disabled" @click="toggle()" @keydown.enter.prevent="toggle()" @keydown.space.prevent="toggle()" @keydown.escape.stop.prevent="close()" :aria-expanded="open" aria-haspopup="dialog" autocomplete="off" placeholder="dd/mm/yyyy" class="h-10 w-full rounded-std border border-brand-border bg-brand-surface px-3 py-2 pr-10 text-left text-sm font-normal text-brand-text focus-ring disabled:cursor-not-allowed disabled:bg-brand-bg">
+      <svg class="pointer-events-none absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 text-brand-secondary" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true"><path fill-rule="evenodd" d="M6 2a1 1 0 011 1v1h6V3a1 1 0 112 0v1h1a2 2 0 012 2v9a2 2 0 01-2 2H4a2 2 0 01-2-2V6a2 2 0 012-2h1V3a1 1 0 011-1zm10 7H4v6h12V9z" clip-rule="evenodd"/></svg>
+      <div x-show="open" x-transition.opacity data-date-picker-panel role="dialog" aria-label="Pilih tanggal" @click.stop @keydown.escape.stop.prevent="close()" :style="panelStyle" class="fixed z-50 max-h-[320px] overflow-y-auto rounded-std border border-brand-border bg-white p-2 text-sm text-brand-text shadow-lg">
+        <div class="mb-2 flex items-center justify-between gap-2 border-b border-brand-border px-1 pb-2">
+          <button type="button" @click="moveMonth(-1)" aria-label="Bulan sebelumnya" class="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-std text-brand-secondary hover:bg-brand-bg">
+            <svg class="h-4 w-4" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true"><path fill-rule="evenodd" d="M12.78 4.22a.75.75 0 010 1.06L8.06 10l4.72 4.72a.75.75 0 11-1.06 1.06l-5.25-5.25a.75.75 0 010-1.06l5.25-5.25a.75.75 0 011.06 0z" clip-rule="evenodd"/></svg>
+          </button>
+          <strong class="text-sm font-semibold capitalize" x-text="monthLabel"></strong>
+          <button type="button" @click="moveMonth(1)" aria-label="Bulan berikutnya" class="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-std text-brand-secondary hover:bg-brand-bg">
+            <svg class="h-4 w-4" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true"><path fill-rule="evenodd" d="M7.22 4.22a.75.75 0 011.06 0l5.25 5.25a.75.75 0 010 1.06l-5.25 5.25a.75.75 0 11-1.06-1.06L11.94 10 7.22 5.28a.75.75 0 010-1.06z" clip-rule="evenodd"/></svg>
+          </button>
+        </div>
+        <div class="grid grid-cols-7 text-center text-xs font-semibold text-brand-secondary">
+          <template x-for="weekday in ['Min', 'Sen', 'Sel', 'Rab', 'Kam', 'Jum', 'Sab']" :key="weekday"><span class="flex h-8 items-center justify-center" x-text="weekday"></span></template>
+        </div>
+        <div class="grid grid-cols-7 text-center">
+          <template x-for="day in calendarDays" :key="day.iso">
+            <button type="button" :disabled="day.disabled || !day.inMonth" @click="chooseDate(day.iso)" :aria-label="day.iso" :aria-pressed="day.selected" :class="day.selected ? 'bg-brand-primary text-white' : day.today ? 'border border-brand-primary text-brand-primary' : day.inMonth ? 'text-brand-text hover:bg-brand-bg' : 'text-brand-border'" class="h-10 min-w-10 rounded-std text-sm disabled:cursor-default">
+              <span x-text="day.day"></span>
+            </button>
+          </template>
+        </div>
+        <div class="mt-2 flex justify-between gap-2 border-t border-brand-border pt-2">
+          <button type="button" @click="clearDate()" class="h-10 rounded-std px-3 py-2 text-sm font-medium text-brand-secondary hover:bg-brand-bg">Clear</button>
+          <button type="button" @click="chooseToday()" class="h-10 rounded-std px-3 py-2 text-sm font-semibold text-brand-primary hover:bg-brand-primary-tint">Today</button>
+        </div>
+      </div>
+    </div>
+  </template>
+</body>
+</html>

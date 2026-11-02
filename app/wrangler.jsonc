@@ -1,0 +1,26 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "kromafi-apotek",
+  "main": "worker/src/index.ts",
+  "compatibility_date": "2026-09-01",
+  "observability": {
+    "enabled": true
+  },
+  "assets": {
+    "directory": "./dist",
+    "binding": "ASSETS",
+    "not_found_handling": "single-page-application"
+  },
+  // Local development works without a Cloudflare account. For a new
+  // deployment (one per pharmacy, on that pharmacy's own Cloudflare account),
+  // run `wrangler d1 create kromafi-apotek` and paste the returned database id
+  // here. Never commit account credentials.
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "kromafi-apotek",
+      "database_id": "db477559-d51d-40f3-a822-d1cb2c21904e",
+      "migrations_dir": "worker/migrations"
+    }
+  ]
+}

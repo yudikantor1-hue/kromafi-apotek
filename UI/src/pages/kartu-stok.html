@@ -1,0 +1,160 @@
+          <template x-if="page === 'kartu stok'">
+            <div x-data="kartuStokPage()" class="mx-auto max-w-5xl space-y-4 sm:space-y-6">
+              <div x-show="toastMessage" x-transition class="fixed right-3 top-3 z-[90] max-w-[calc(100vw-1.5rem)] rounded-lg bg-brand-primary px-4 py-3 text-sm font-semibold text-white shadow-lg" x-text="toastMessage"></div>
+
+              <section class="rounded-container border border-brand-border bg-brand-surface p-3 shadow-card sm:p-4">
+                <div class="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                  <label class="block text-xs font-semibold text-brand-text">Tanggal dari
+                    <div x-data="compactDatePicker()" x-modelable="value" x-model="filterFrom" x-effect="setBounds('', filterTo)" @date-picker-change="filterChanged()" @keydown.escape.stop.prevent="close()"></div>
+                  </label>
+                  <label class="block text-xs font-semibold text-brand-text">Tanggal sampai
+                    <div x-data="compactDatePicker()" x-modelable="value" x-model="filterTo" x-effect="setBounds(filterFrom, '')" @date-picker-change="filterChanged()" @keydown.escape.stop.prevent="close()"></div>
+                  </label>
+                  <div class="relative sm:col-span-2" @click.outside="closeProductDropdown()" @keydown.escape.stop.prevent="closeProductDropdown()">
+                    <span class="block text-xs font-semibold text-brand-text">Nama obat <span class="text-brand-error">*</span></span>
+                    <input type="search" x-model="productQuery" @focus="if (!productDropdownOpen) toggleProductDropdown()" @input="searchProductFilter()" @keydown.escape.stop.prevent="closeProductDropdown()" autocomplete="off" placeholder="Cari nama obat" aria-label="Cari nama obat" :aria-expanded="productDropdownOpen" aria-controls="stock-product-options" class="mt-1 h-10 w-full rounded-std border border-brand-border bg-brand-surface px-3 py-2 text-sm font-normal text-brand-text focus-ring">
+                    <div id="stock-product-options" x-show="productDropdownOpen" x-transition.opacity role="listbox" class="absolute left-0 top-full z-50 mt-1 max-h-60 w-full overflow-y-auto rounded-md border border-brand-border bg-white p-1 text-sm text-brand-text shadow-lg">
+                      <template x-for="product in filteredProductOptions" :key="productId(product)">
+                        <button type="button" role="option" :aria-selected="String(productFilter) === String(productId(product))" @click="selectProductFilter(product)" :class="String(productFilter) === String(productId(product)) ? 'bg-brand-primary text-white' : 'text-brand-text hover:bg-brand-bg'" class="min-h-10 w-full rounded px-3 py-2 text-left text-sm" x-text="productName(product)"></button>
+                      </template>
+                      <div x-show="filteredProductOptions.length === 0" class="px-3 py-2 text-sm text-brand-secondary">Barang tidak ditemukan</div>
+                    </div>
+                  </div>
+                </div>
+                <p x-show="filterError" class="mt-2 text-sm text-brand-error" x-text="filterError"></p>
+                <div class="mt-3 flex justify-center">
+                  <button x-show="!hasProcessed" type="button" @click="processFilters()" :disabled="!!filterError" class="h-10 min-w-28 rounded-action bg-brand-accent px-5 text-sm font-bold text-white shadow-card transition hover:bg-[#E85A2E] disabled:cursor-not-allowed disabled:opacity-50">Proses</button>
+                </div>
+              </section>
+
+              <section class="overflow-hidden rounded-container border border-brand-border bg-brand-surface shadow-card">
+                <div x-show="!hasProcessed" class="p-8 text-center text-sm font-medium text-brand-secondary">Atur filter lalu tekan Proses</div>
+                <template x-if="hasProcessed">
+                  <div>
+                    <div x-show="mutationRows.length > 0" class="overflow-x-auto">
+                      <table class="w-full min-w-[640px] border-collapse text-left text-sm">
+                        <thead class="bg-brand-bg text-xs font-bold text-brand-secondary">
+                          <tr>
+                            <th class="whitespace-nowrap px-3 py-3">Tanggal</th>
+                            <th class="whitespace-nowrap px-3 py-3">Kategori</th>
+                            <th class="whitespace-nowrap px-3 py-3 text-right">Stok awal</th>
+                            <th class="whitespace-nowrap px-3 py-3 text-right">Transaksi</th>
+                            <th class="whitespace-nowrap px-3 py-3 text-right">Stok akhir</th>
+                          </tr>
+                        </thead>
+                        <tbody class="divide-y divide-brand-border">
+                          <template x-for="movement in mutationRows" :key="movement.id">
+                            <tr @click="showDetail(movement)" class="cursor-pointer transition hover:bg-brand-primary-tint/30">
+                              <td class="whitespace-nowrap px-3 py-3 text-sm text-brand-text" x-text="formatDate(movement.date)"></td>
+                              <td class="whitespace-nowrap px-3 py-3 text-sm text-brand-text" x-text="movement.category"></td>
+                              <td class="whitespace-nowrap px-3 py-3 text-right font-tabular text-sm" x-text="formatRibuan(movement.opening)"></td>
+                              <td class="whitespace-nowrap px-3 py-3 text-right font-tabular text-sm font-semibold" :class="movement.quantity < 0 ? 'text-red-600' : 'text-green-600'" x-text="(movement.quantity > 0 ? '+' : '') + formatRibuan(movement.quantity)"></td>
+                              <td class="whitespace-nowrap px-3 py-3 text-right font-tabular text-sm" x-text="formatRibuan(movement.closing)"></td>
+                            </tr>
+                          </template>
+                        </tbody>
+                      </table>
+                    </div>
+                    <div x-show="mutationRows.length === 0" class="p-8 text-center text-sm font-medium text-brand-secondary" x-text="isNoMovementForProduct ? 'Belum ada mutasi untuk obat ini' : 'Tidak ada mutasi pada rentang tanggal ini'"></div>
+                    <div x-show="hasMore" class="flex justify-center border-t border-brand-border bg-brand-bg p-4">
+                      <button type="button" @click="loadMore()" class="h-10 rounded-full border border-brand-border bg-brand-surface px-5 text-sm font-bold text-brand-primary shadow-card transition hover:bg-brand-primary-tint">Load more</button>
+                    </div>
+                  </div>
+                </template>
+              </section>
+
+              <div x-show="isDetailOpen" x-transition.opacity @click.self="closeDetail()" class="fixed inset-0 z-[60] flex items-center justify-center bg-gray-900/60 p-3 backdrop-blur-sm sm:p-4">
+                <div x-ref="detailModalScroll" @click.away="closeDetail()" class="max-h-[90dvh] w-full max-w-lg overflow-y-auto rounded-container border border-brand-border bg-brand-surface shadow-2xl">
+                  <div class="sticky top-0 flex items-center gap-2 border-b border-brand-border bg-brand-bg p-3 sm:p-4">
+                    <button type="button" @click="closeDetail()" aria-label="Kembali" class="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-std text-brand-secondary hover:bg-white">
+                      <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 19l-7-7m0 0l7-7m-7 7h18" /></svg>
+                    </button>
+                    <h3 class="min-w-0 flex-1 truncate text-base font-bold text-brand-text">Detail Mutasi</h3>
+                  </div>
+                  <div class="space-y-4 p-4 text-sm sm:p-5">
+                    <dl class="space-y-3">
+                      <div class="flex justify-between gap-3"><dt class="text-brand-secondary">Tanggal</dt><dd class="text-right font-semibold" x-text="selectedMovement ? formatDate(selectedMovement.date) : '-'"></dd></div>
+                      <div class="flex justify-between gap-3"><dt class="text-brand-secondary">Kategori</dt><dd class="text-right font-semibold" x-text="selectedMovement ? selectedMovement.category : '-'"></dd></div>
+                      <div class="flex justify-between gap-3"><dt class="text-brand-secondary">Nama obat</dt><dd class="text-right font-semibold" x-text="selectedMovement ? selectedMovement.nama : '-'"></dd></div>
+                      <div class="flex justify-between gap-3"><dt class="text-brand-secondary">Satuan</dt><dd class="text-right font-semibold" x-text="selectedMovement ? selectedMovement.satuan : '-'"></dd></div>
+                    </dl>
+                    <dl class="space-y-3 border-y border-brand-border py-4">
+                      <div class="flex justify-between gap-3"><dt class="text-brand-secondary">Stok awal</dt><dd class="font-tabular font-semibold" x-text="selectedMovement ? formatRibuan(selectedMovement.opening) : '-'"></dd></div>
+                      <div class="flex justify-between gap-3"><dt class="text-brand-secondary">Transaksi</dt><dd class="font-tabular font-semibold" :class="selectedMovement && selectedMovement.quantity < 0 ? 'text-red-600' : 'text-green-600'" x-text="selectedMovement ? (selectedMovement.quantity > 0 ? '+' : '') + formatRibuan(selectedMovement.quantity) : '-'"></dd></div>
+                      <div class="flex justify-between gap-3"><dt class="text-brand-secondary">Stok akhir</dt><dd class="font-tabular font-semibold" x-text="selectedMovement ? formatRibuan(selectedMovement.closing) : '-'"></dd></div>
+                    </dl>
+                    <dl class="space-y-3">
+                      <div class="flex justify-between gap-3"><dt class="text-brand-secondary">Referensi</dt><dd class="max-w-[60%] break-all text-right font-semibold" x-text="selectedMovement ? selectedMovement.reference : '-'"></dd></div>
+                      <div class="flex justify-between gap-3"><dt class="text-brand-secondary">Batch</dt><dd class="text-right font-semibold" x-text="selectedMovement && selectedMovement.batch ? selectedMovement.batch : '-'"></dd></div>
+                      <div class="flex justify-between gap-3"><dt class="text-brand-secondary">Expired</dt><dd class="text-right font-semibold" x-text="selectedMovement ? formatExpired(selectedMovement.expired) : '-'"></dd></div>
+                      <div class="flex justify-between gap-3"><dt class="text-brand-secondary">Petugas</dt><dd class="text-right font-semibold" x-text="selectedMovement ? selectedMovement.staff : '-'"></dd></div>
+                      <div class="flex justify-between gap-3"><dt class="text-brand-secondary">Catatan</dt><dd class="max-w-[60%] break-words text-right font-semibold" x-text="selectedMovement && selectedMovement.note ? selectedMovement.note : '-'"></dd></div>
+                    </dl>
+                    <div x-show="selectedMovement && canModify(selectedMovement)" class="flex justify-end gap-2 border-t border-brand-border pt-3">
+                      <button type="button" @click="deleteMovement(selectedMovement)" class="h-10 rounded-action border border-red-200 px-4 text-sm font-semibold text-red-600">Hapus</button>
+                      <button type="button" @click="openEdit(selectedMovement)" class="h-10 rounded-action bg-brand-primary px-4 text-sm font-bold text-white">Edit</button>
+                    </div>
+                    <p x-show="selectedMovement && !canModify(selectedMovement)" class="border-t border-brand-border pt-3 text-xs leading-5 text-brand-secondary" x-text="selectedMovement && selectedMovement.category === 'Penjualan' ? 'Mutasi ini berasal dari modul Penjualan. Untuk mengubah, silakan buka modul tersebut.' : selectedMovement && selectedMovement.category === 'Orderan' ? 'Mutasi ini berasal dari modul Faktur Orderan. Untuk mengubah, silakan buka modul tersebut.' : 'Kategori mutasi ini tidak dapat diubah dari Kartu Stok.'"></p>
+                  </div>
+                </div>
+              </div>
+
+              <div x-show="isEditOpen" x-transition.opacity @click.self="closeEdit()" class="fixed inset-0 z-[70] flex items-center justify-center bg-gray-900/60 p-3 backdrop-blur-sm sm:p-4">
+                <div x-ref="editModalScroll" @click.away="closeEdit()" class="max-h-[90dvh] w-full max-w-lg overflow-y-auto rounded-container border border-brand-border bg-brand-surface shadow-2xl">
+                  <div class="sticky top-0 flex items-center gap-2 border-b border-brand-border bg-brand-bg p-3 sm:p-4">
+                    <button type="button" @click="closeEdit()" aria-label="Kembali" class="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-std text-brand-secondary hover:bg-white">
+                      <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 19l-7-7m0 0l7-7m-7 7h18" /></svg>
+                    </button>
+                    <h3 class="min-w-0 flex-1 truncate text-base font-bold text-brand-text">Edit Mutasi</h3>
+                  </div>
+                  <form @submit.prevent="saveEdit()" class="space-y-4 p-4 sm:p-5">
+                    <label class="block text-xs font-semibold">Tanggal <span class="text-brand-error">*</span><div x-data="compactDatePicker(true)" x-modelable="value" x-model="editForm.date" class="mt-1"></div></label>
+                    <div class="relative" @click.outside="editCategoryDropdownOpen = false" @keydown.escape.stop.prevent="editCategoryDropdownOpen = false">
+                      <span class="block text-xs font-semibold">Kategori <span class="text-brand-error">*</span></span>
+                      <button type="button" role="combobox" aria-label="Pilih kategori" :aria-expanded="editCategoryDropdownOpen" @click="editCategoryDropdownOpen = !editCategoryDropdownOpen" class="mt-1 flex min-h-10 w-full items-center justify-between gap-2 rounded-std border border-brand-border bg-brand-surface px-3 py-2 text-left text-sm font-normal focus-ring">
+                        <span x-text="editForm.category"></span>
+                        <svg class="h-4 w-4 shrink-0 text-brand-secondary" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true"><path fill-rule="evenodd" d="M5.22 7.47a.75.75 0 011.06 0L10 11.19l3.72-3.72a.75.75 0 111.06 1.06l-4.25 4.25a.75.75 0 01-1.06 0L5.22 8.53a.75.75 0 010-1.06z" clip-rule="evenodd"/></svg>
+                      </button>
+                      <div x-show="editCategoryDropdownOpen" x-transition.opacity role="listbox" class="absolute left-0 top-full z-50 mt-1 max-h-60 w-full overflow-y-auto rounded-md border border-brand-border bg-white p-1 text-sm text-brand-text shadow-lg">
+                        <template x-for="category in ['Penjualan', 'Orderan', 'Penyesuaian']" :key="category">
+                          <button type="button" role="option" :aria-selected="editForm.category === category" @click="selectEditCategory(category)" :class="editForm.category === category ? 'bg-brand-primary text-white' : 'text-brand-text hover:bg-brand-bg'" class="min-h-10 w-full rounded px-3 py-2 text-left text-sm" x-text="category"></button>
+                        </template>
+                      </div>
+                    </div>
+                    <div class="relative" @click.outside="closeEditProductDropdown()" @keydown.escape.stop.prevent="closeEditProductDropdown()">
+                      <span class="block text-xs font-semibold">Nama obat <span class="text-brand-error">*</span></span>
+                      <input type="search" x-model="editProductQuery" @focus="if (!editProductDropdownOpen) toggleEditProductDropdown()" @input="searchEditProduct()" @keydown.escape.stop.prevent="closeEditProductDropdown()" autocomplete="off" placeholder="Cari nama obat" aria-label="Cari nama obat" :aria-expanded="editProductDropdownOpen" aria-controls="edit-stock-product-options" class="mt-1 h-10 w-full rounded-std border border-brand-border bg-brand-surface px-3 py-2 text-sm font-normal text-brand-text focus-ring">
+                      <div id="edit-stock-product-options" x-show="editProductDropdownOpen" x-transition.opacity role="listbox" class="absolute left-0 top-full z-50 mt-1 max-h-60 w-full overflow-y-auto rounded-md border border-brand-border bg-white p-1 text-sm text-brand-text shadow-lg">
+                        <template x-for="product in editProductOptions" :key="productId(product)">
+                          <button type="button" role="option" :aria-selected="String(editForm.productId) === String(productId(product))" @click="selectEditProduct(product)" :class="String(editForm.productId) === String(productId(product)) ? 'bg-brand-primary text-white' : 'text-brand-text hover:bg-brand-bg'" class="min-h-10 w-full rounded px-3 py-2 text-left text-sm" x-text="productName(product)"></button>
+                        </template>
+                        <div x-show="editProductOptions.length === 0" class="px-3 py-2 text-sm text-brand-secondary">Barang tidak ditemukan</div>
+                      </div>
+                    </div>
+                    <label class="block text-xs font-semibold">Transaksi (+/-) <span class="text-brand-error">*</span><input type="number" step="any" x-model.number="editForm.quantity" required class="mt-1 h-10 w-full rounded-std border border-brand-border px-3 text-sm font-normal focus-ring" placeholder="-10 atau +100"></label>
+                    <div class="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                      <label class="block text-xs font-semibold">Batch<input type="text" x-model="editForm.batch" class="mt-1 h-10 w-full rounded-std border border-brand-border px-3 text-sm font-normal focus-ring"></label>
+                      <label class="block text-xs font-semibold">Expired<div x-data="compactDatePicker()" x-modelable="value" x-model="editForm.expired" class="mt-1"></div></label>
+                    </div>
+                    <label class="block text-xs font-semibold">Catatan<textarea rows="3" x-model="editForm.note" class="mt-1 w-full rounded-std border border-brand-border px-3 py-2 text-sm font-normal focus-ring"></textarea></label>
+                    <div class="flex justify-end gap-2 border-t border-brand-border pt-3">
+                      <button type="button" @click="closeEdit()" class="h-10 rounded-action border border-brand-border px-4 text-sm font-semibold text-brand-secondary">Cancel</button>
+                      <button type="submit" class="h-10 rounded-action bg-brand-primary px-5 text-sm font-bold text-white">Save</button>
+                    </div>
+                  </form>
+                </div>
+              </div>
+              <div x-show="isConfirmOpen" x-transition.opacity @click.self="cancelMutationConfirmation()" @keydown.escape.window.stop.prevent="cancelMutationConfirmation()" class="fixed inset-0 z-[80] flex items-center justify-center bg-gray-900/60 p-3 backdrop-blur-sm">
+                <section role="alertdialog" aria-modal="true" aria-labelledby="stock-confirm-title" aria-describedby="stock-confirm-message" class="w-full max-w-xs max-h-[calc(100dvh_-_1.5rem)] overflow-y-auto rounded-container border border-brand-border bg-brand-surface shadow-2xl">
+                  <div class="border-b border-brand-border bg-brand-bg px-4 py-3">
+                    <h3 id="stock-confirm-title" class="text-sm font-bold text-brand-text">Konfirmasi perubahan</h3>
+                  </div>
+                  <p id="stock-confirm-message" class="px-4 py-4 text-sm leading-5 text-brand-text">Mengubah mutasi akan mengubah stok barang. Lanjut?</p>
+                  <div class="flex justify-end gap-2 border-t border-brand-border bg-brand-bg px-3 py-3">
+                    <button type="button" @click="cancelMutationConfirmation()" class="h-10 rounded-action border border-brand-border bg-brand-surface px-4 text-sm font-semibold text-brand-secondary">Batal</button>
+                    <button type="button" @click="confirmMutation()" class="h-10 rounded-action bg-brand-primary px-4 text-sm font-bold text-white">Lanjutkan</button>
+                  </div>
+                </section>
+              </div>
+            </div>
+          </template>

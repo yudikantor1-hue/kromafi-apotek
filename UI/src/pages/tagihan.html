@@ -1,0 +1,73 @@
+          <template x-if="page === 'tagihan'">
+            <div x-data="tagihanPage()" class="max-w-4xl mx-auto space-y-4">
+              <div x-show="toastMessage" x-transition class="fixed top-5 right-5 z-[80] rounded-xl bg-emerald-600 px-4 py-3 text-xs font-semibold text-white shadow-lg" x-text="toastMessage"></div>
+              <div class="grid grid-cols-1 gap-2 rounded-container border border-brand-border bg-brand-surface p-3 shadow-card sm:grid-cols-2 sm:gap-3" @click.outside="closeFilterDropdown()" @keydown.escape.stop.prevent="closeFilterDropdown()">
+                <label class="block min-w-0 text-xs font-semibold text-brand-text">Bulan
+                  <div x-data="monthYearPicker()" x-modelable="value" x-model="monthFilter" @month-picker-change="visibleCount = 10" class="mt-1"></div>
+                </label>
+                <div class="relative min-w-0">
+                  <span class="block text-xs font-semibold text-brand-text">Distributor</span>
+                  <button type="button" role="combobox" aria-label="Filter distributor" :aria-expanded="openFilterDropdown === 'distributor'" @click="toggleFilterDropdown('distributor')" class="mt-1 flex min-h-10 w-full items-center justify-between gap-2 rounded-std border border-brand-border bg-brand-surface px-3 py-2 text-left text-sm font-normal text-brand-text focus-ring">
+                    <span class="min-w-0 truncate" x-text="distributorFilter === 'semua' ? 'Semua distributor' : (distributorOptions.find(item => String(item.id) === String(distributorFilter)) || {}).nama"></span>
+                    <svg class="h-4 w-4 shrink-0 text-brand-secondary" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true"><path fill-rule="evenodd" d="M5.22 7.47a.75.75 0 011.06 0L10 11.19l3.72-3.72a.75.75 0 111.06 1.06l-4.25 4.25a.75.75 0 01-1.06 0L5.22 8.53a.75.75 0 010-1.06z" clip-rule="evenodd"/></svg>
+                  </button>
+                  <div x-show="openFilterDropdown === 'distributor'" x-transition.opacity role="listbox" class="absolute left-0 top-full z-50 mt-1 max-h-60 w-full overflow-y-auto rounded-md border border-brand-border bg-white p-1 text-sm text-brand-text shadow-lg">
+                    <button type="button" role="option" :aria-selected="distributorFilter === 'semua'" @click="distributorFilter = 'semua'; closeFilterDropdown()" :class="distributorFilter === 'semua' ? 'bg-brand-primary text-white' : 'text-brand-text hover:bg-brand-bg'" class="min-h-10 w-full rounded px-3 py-2 text-left text-sm">Semua distributor</button>
+                    <template x-for="distributor in distributorOptions" :key="distributor.id"><button type="button" role="option" :aria-selected="String(distributorFilter) === String(distributor.id)" @click="distributorFilter = String(distributor.id); closeFilterDropdown()" :class="String(distributorFilter) === String(distributor.id) ? 'bg-brand-primary text-white' : 'text-brand-text hover:bg-brand-bg'" class="min-h-10 w-full rounded px-3 py-2 text-left text-sm" x-text="distributor.nama"></button></template>
+                  </div>
+                </div>
+              </div>
+
+              <div class="sticky top-0 z-20 flex items-center justify-between gap-2 rounded-std border border-brand-border bg-brand-surface/95 px-4 py-3 text-xs shadow-card backdrop-blur sm:text-sm">
+                <span class="min-w-0 font-semibold text-brand-text">Total tagihan belum lunas</span>
+                <strong class="shrink-0 font-tabular text-brand-text" x-text="formatHarga(totalFilteredTagihan)"></strong>
+              </div>
+
+              <div class="overflow-hidden rounded-container border border-brand-border bg-brand-surface shadow-card">
+                <div class="divide-y divide-brand-border">
+                  <template x-for="invoice in visibleInvoices" :key="invoice.id">
+                    <article role="button" tabindex="0" @click="openInvoiceDetail(invoice)" @keydown.enter.self="openInvoiceDetail(invoice)" @keydown.space.prevent.self="openInvoiceDetail(invoice)" class="overflow-hidden border-l-4 transition-[opacity,transform,max-height,padding] duration-300 ease-out" :class="[
+                      isOverdue(invoice) ? 'border-l-red-500' : isDueToday(invoice) ? 'border-l-amber-400' : 'border-l-transparent',
+                      pendingRemovalIds[String(invoice.id)] ? 'pointer-events-none max-h-0 -translate-y-2 px-0 py-0 opacity-0' : 'max-h-40 px-4 py-3 sm:px-6'
+                    ]">
+                      <div class="flex items-center justify-between gap-2">
+                        <span class="min-w-0 truncate text-xs font-semibold text-brand-secondary" x-text="formatDate(invoiceJatuhTempo(invoice))"></span>
+                        <div class="flex shrink-0 items-center gap-2">
+                          <span x-show="isOverdue(invoice)" class="whitespace-nowrap rounded-full border border-red-200 bg-red-100 px-2 py-1 text-[10px] font-bold text-red-700 sm:text-xs">Jatuh tempo</span>
+                          <span x-show="isDueToday(invoice)" class="whitespace-nowrap rounded-full border border-amber-200 bg-amber-100 px-2 py-1 text-[10px] font-bold text-amber-800 sm:text-xs">Hari ini</span>
+                          <button type="button" @click.stop="openPaymentDialog(invoice)" class="min-h-10 min-w-14 rounded-action bg-emerald-600 px-3 text-xs font-bold text-white transition hover:bg-emerald-700 focus-ring">Lunas</button>
+                        </div>
+                      </div>
+                      <div class="mt-1 truncate text-sm font-bold text-brand-text" x-text="invoiceDistributorName(invoice)"></div>
+                      <div class="mt-1 flex items-center justify-between gap-3">
+                        <span class="min-w-0 truncate font-tabular text-xs text-brand-secondary" x-text="invoiceNumber(invoice)"></span>
+                        <strong class="shrink-0 font-tabular text-sm text-brand-text" x-text="formatHarga(invoiceTotal(invoice))"></strong>
+                      </div>
+                    </article>
+                  </template>
+                  <div x-show="visibleInvoices.length === 0" class="p-8 text-center text-sm font-medium text-brand-secondary" x-text="hasUnpaidInvoices ? 'Tidak ada tagihan untuk filter ini' : 'Semua faktur sudah lunas'"></div>
+                </div>
+                <div x-show="hasMore" class="flex justify-center border-t border-brand-border bg-brand-bg p-4">
+                  <button type="button" @click="loadMore()" class="h-10 rounded-full border border-brand-border bg-brand-surface px-5 text-xs font-bold text-brand-primary shadow-card transition hover:bg-brand-primary-tint">Load more</button>
+                </div>
+              </div>
+
+              <div x-show="isPaymentDialogOpen" x-transition.opacity @click.stop @click.self="closePaymentDialog()" class="fixed inset-0 z-[60] flex items-center justify-center bg-gray-900/60 p-4 backdrop-blur-sm">
+                <div x-ref="paymentDialogScroll" @click.away="closePaymentDialog()" class="w-full max-w-lg max-h-[calc(100dvh_-_2rem)] overflow-y-auto rounded-container border border-brand-border bg-brand-surface shadow-2xl">
+                  <div class="border-b border-brand-border bg-brand-bg p-4"><h3 class="text-sm font-bold text-brand-text">Konfirmasi Lunas</h3></div>
+                  <div class="space-y-3 p-4 sm:p-5">
+                    <dl class="space-y-2 border-b border-brand-border pb-3 text-xs sm:text-sm">
+                      <div class="flex justify-between gap-3"><dt class="text-brand-secondary">Nomor faktur</dt><dd class="text-right font-semibold font-tabular" x-text="dialogInvoice ? invoiceNumber(dialogInvoice) : ''"></dd></div>
+                      <div class="flex justify-between gap-3"><dt class="text-brand-secondary">Distributor</dt><dd class="text-right font-semibold" x-text="dialogInvoice ? invoiceDistributorName(dialogInvoice) : ''"></dd></div>
+                      <div class="flex justify-between gap-3"><dt class="text-brand-secondary">Total tagihan</dt><dd class="text-right font-semibold font-tabular" x-text="dialogInvoice ? formatHarga(invoiceTotal(dialogInvoice)) : ''"></dd></div>
+                    </dl>
+                    <label class="block text-xs font-semibold">Tanggal pelunasan <span class="text-brand-error">*</span><div x-data="compactDatePicker(true)" x-modelable="value" x-model="paymentDateDraft" @date-picker-change="markPaidError = ''" @keydown.escape.stop.prevent="close()" class="mt-1"></div></label>
+                    <div class="flex justify-end gap-2 border-t border-brand-border pt-3">
+                      <button type="button" @click="closePaymentDialog()" class="h-10 rounded-action border border-brand-border px-4 text-xs font-semibold text-brand-secondary">Cancel</button>
+                      <button type="button" @click="markInvoicePaid()" class="h-10 rounded-action bg-emerald-600 px-4 text-xs font-bold text-white hover:bg-emerald-700">Tandai Lunas</button>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </template>

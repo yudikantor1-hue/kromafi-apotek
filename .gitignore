@@ -1,0 +1,34 @@
+# Dependencies and build output
+node_modules/
+dist/
+.wrangler/
+coverage/
+
+# Local secrets and environment files
+.dev.vars
+.env
+.env.*
+!.env.example
+*.local
+
+# Backups and database exports contain password hashes and staff data
+backups/
+*.db
+*.db-shm
+*.db-wal
+*.sqlite
+!app/worker/migrations/*.sql
+!app/worker/seed/*.sql
+
+# Dev process logs
+*.log
+
+# Editor and OS noise
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+
+# Tool workspace metadata
+.freebuff/
+.cloud-attachments/

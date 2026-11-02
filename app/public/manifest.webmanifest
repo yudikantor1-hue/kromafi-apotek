@@ -1,0 +1,19 @@
+{
+  "name": "Kromafi Apotek",
+  "short_name": "Kromafi",
+  "description": "Sistem apotek untuk penjualan, stok, dan laporan.",
+  "lang": "id",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "background_color": "#F6F7FB",
+  "theme_color": "#3B52E0",
+  "icons": [
+    {
+      "src": "/icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any"
+    }
+  ]
+}

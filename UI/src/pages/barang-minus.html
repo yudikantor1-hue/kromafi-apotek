@@ -1,0 +1,19 @@
+          <template x-if="page === 'barang minus'">
+            <div x-data="barangMinusPage()" class="mx-auto max-w-4xl space-y-4 text-sm">
+              <div class="overflow-hidden rounded-container border border-brand-border bg-brand-surface shadow-card">
+                <div class="divide-y divide-brand-border">
+                  <template x-for="item in visibleBarangMinus" :key="item.id">
+                    <div class="px-4 py-3 sm:px-6">
+                      <p class="break-words font-semibold text-brand-text" x-text="item.nama"></p>
+                      <p class="mt-1 font-tabular font-semibold text-brand-error" x-text="formatRibuan(item.stok) + (item.satuan ? ' ' + item.satuan : '')"></p>
+                    </div>
+                  </template>
+                  <p x-show="loadError" class="p-6 text-center text-brand-error" x-text="loadError"></p>
+                  <p x-show="!loadError && filteredBarangMinus.length === 0" class="p-6 text-center text-brand-secondary">Tidak ada barang minus</p>
+                </div>
+                <div x-show="filteredBarangMinus.length > 0" class="flex justify-center border-t border-brand-border bg-brand-bg p-4">
+                  <button type="button" @click="loadMore()" :disabled="!hasMore" class="h-10 rounded-full border border-brand-border bg-brand-surface px-5 text-sm font-bold text-brand-primary shadow-card transition hover:bg-brand-primary-tint disabled:cursor-not-allowed disabled:opacity-50">Load more</button>
+                </div>
+              </div>
+            </div>
+          </template>

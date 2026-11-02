@@ -1,0 +1,118 @@
+import { getSessionStaff, handleLogin, handleLogout, handleMe, handleSetOwnPassword } from './auth';
+import type { Env } from './env';
+import { apiError, isSameOriginRequest, json, nowIso } from './http';
+import { handleAudit, handleItemList, handleSnapshot } from './items';
+import { roleAllows } from './permissions';
+import { handleRecoveryGenerate, handleRecoveryReset } from './recovery';
+import { handleStaffCreate, handleStaffList, handleStaffPassword, handleStaffPin, handleStaffUpdate } from './staff';
+import { handlePush } from './sync';
+
+async function health(env: Env): Promise<Response> {
+  try {
+    await env.DB.prepare('SELECT 1 AS ok').first();
+    return json({ ok: true, service: 'kromafi-apotek', database: 'reachable', serverTime: nowIso() });
+  } catch (error) {
+    console.error('health check failed', error);
+    return json({ ok: false, database: 'unreachable', serverTime: nowIso() }, 503);
+  }
+}
+
+async function route(request: Request, env: Env): Promise<Response> {
+  const url = new URL(request.url);
+  const path = url.pathname;
+  const method = request.method.toUpperCase();
+
+  const isMutation = method !== 'GET' && method !== 'HEAD';
+  if (isMutation && !isSameOriginRequest(request)) return apiError(403, 'forbidden_origin');
+
+  if (path === '/api/health' && method === 'GET') return health(env);
+  if (path === '/api/login' && method === 'POST') return handleLogin(request, env.DB);
+  if (path === '/api/logout' && method === 'POST') return handleLogout(request, env.DB);
+  if (path === '/api/recovery/reset' && method === 'POST') return handleRecoveryReset(request, env.DB);
+
+  if (path === '/api/me' && method === 'GET') return handleMe(request, env.DB);
+  if (path === '/api/session/password' && method === 'POST') return handleSetOwnPassword(request, env.DB);
+
+  // A session opened with a temporary PIN exists only to set a password. Every
+  // other protected route stays closed until its owner has chosen one (10.2.10).
+  if (path.startsWith('/api/')) {
+    const pending = await getSessionStaff(request, env.DB);
+    if (pending?.mustChangePassword) return apiError(403, 'password_change_required');
+  }
+
+  if (path === '/api/sync/snapshot' && method === 'GET') {
+    const staff = await getSessionStaff(request, env.DB);
+    if (!staff) return apiError(401, 'unauthenticated');
+    return handleSnapshot(request, env.DB, staff);
+  }
+
+  if (path === '/api/sync/push' && method === 'POST') {
+    const staff = await getSessionStaff(request, env.DB);
+    if (!staff) return apiError(401, 'unauthenticated');
+    // Deactivated accounts may still deliver operations recorded before their
+    // deactivation, so the per-operation check lives in the sync engine.
+    if (!roleAllows(staff.role, 'items:write')) return apiError(403, 'forbidden');
+    return handlePush(request, env.DB, staff);
+  }
+
+  if (path === '/api/items' && method === 'GET') {
+    const staff = await getSessionStaff(request, env.DB);
+    if (!staff) return apiError(401, 'unauthenticated');
+    return handleItemList(request, env.DB, staff);
+  }
+
+  if (path === '/api/staff' && method === 'GET') {
+    const staff = await getSessionStaff(request, env.DB);
+    if (!staff) return apiError(401, 'unauthenticated');
+    return handleStaffList(request, env.DB, staff);
+  }
+
+  if (path === '/api/staff' && method === 'POST') {
+    const staff = await getSessionStaff(request, env.DB);
+    if (!staff) return apiError(401, 'unauthenticated');
+    return handleStaffCreate(request, env.DB, staff);
+  }
+
+  const staffRoute = path.match(/^\/api\/staff\/([^/]+)(\/password|\/recovery-codes|\/pin)?$/);
+  if (staffRoute) {
+    const staff = await getSessionStaff(request, env.DB);
+    if (!staff) return apiError(401, 'unauthenticated');
+    const targetId = decodeURIComponent(staffRoute[1]);
+
+    if (staffRoute[2] === '/password' && method === 'POST') {
+      return handleStaffPassword(request, env.DB, staff, targetId);
+    }
+    if (staffRoute[2] === '/recovery-codes' && method === 'POST') {
+      return handleRecoveryGenerate(request, env.DB, staff, targetId);
+    }
+    if (staffRoute[2] === '/pin' && method === 'POST') {
+      return handleStaffPin(request, env.DB, staff, targetId);
+    }
+    if (!staffRoute[2] && method === 'PUT') {
+      return handleStaffUpdate(request, env.DB, staff, targetId);
+    }
+    return apiError(405, 'method_not_allowed');
+  }
+
+  if (path === '/api/audit' && method === 'GET') {
+    const staff = await getSessionStaff(request, env.DB);
+    if (!staff) return apiError(401, 'unauthenticated');
+    return handleAudit(request, env.DB, staff);
+  }
+
+  if (path.startsWith('/api/')) return apiError(404, 'not_found');
+
+  if (env.ASSETS) return env.ASSETS.fetch(request);
+  return new Response('Not found', { status: 404 });
+}
+
+export default {
+  async fetch(request: Request, env: Env): Promise<Response> {
+    try {
+      return await route(request, env);
+    } catch (error) {
+      console.error('unhandled worker error', error);
+      return apiError(500, 'internal_error');
+    }
+  },
+};
