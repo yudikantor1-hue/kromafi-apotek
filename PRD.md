@@ -90,7 +90,7 @@ The product must be built as a real application, not as a prototype-only workflo
 - Offline reads and reports use the last local snapshot, display its last sync time, and clearly distinguish local pending changes from server-confirmed data.
 - When connectivity returns, the app synchronizes pending operations with safe retries, server-side permission/business-rule validation, and duplicate protection.
 - Queued operations are synchronized in dependency order so that offline-created reference records are available before dependent documents.
-- Pending documents use stable provisional device-generated IDs; official numbering and the receipt treatment for an offline sale must be decided before release.
+- Pending documents use stable device-generated UUIDs, with no document numbering and no code printed on the receipt (10.2.25)
 - Conflicting or rejected operations remain visible and recoverable for review; the app must not silently overwrite or discard them.
 - The app displays connection state, last successful sync, pending work, and unresolved conflicts.
 - Pending work remains on its originating device until confirmed; device loss or browser-data deletion may make unsynchronized work unrecoverable, so the app must warn users and the recovery policy must be agreed.
@@ -186,7 +186,7 @@ The first usable version is accepted when all of the following are true:
 - Offline login/device access policy, including disconnected account revocation
 - Who reviews and resolves rejected/conflicting offline operations
 - Recovery policy for pending work if a device is lost or browser data is cleared
-- Offline sales receipt policy and when official sale numbering is assigned
+- Offline sales receipt policy (numbering is settled in 10.2.25: a nota is identified by its UUID and its receipt prints no code)
 - Whether daily closing and cash reconciliation are required in version 1.0 and what they must show
 
 ## 10. Notes

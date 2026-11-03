@@ -50,7 +50,7 @@ Cloudflare D1 (authoritative shared database)
 - Offline reads and reports use the last local snapshot and must be labeled with its sync time; device-local pending changes must remain visibly provisional.
 - On reconnection, the client sends queued operations safely with retries. The Worker rechecks current authentication, permissions, and domain rules, deduplicates retries, and returns canonical server results.
 - Queued operations are synchronized in dependency order so that offline-created reference records exist before documents that use them.
-- Pending documents use stable provisional device-generated IDs; official numbering and receipt treatment for an offline sale must be agreed before release.
+- Pending documents use stable device-generated UUIDs; no numbering is generated and the receipt prints no code (10.2.25), while the rest of the offline receipt treatment must still be agreed before release.
 - Operations that are stale, invalid, unauthorized, or conflicting are retained and shown as actionable failures; they are never silently discarded or overwritten. Resolution is domain-specific and preserves an audit trail. The one exception is work the server refuses for good because the account that recorded it was deactivated (10.2.13): the device removes it without notice, and the server ledger is the only remaining record.
 - Server-confirmed operations update the local cache. Pending operations must survive app reloads; the UI warns before any action that could erase unsynchronized data.
 - Device loss or browser storage deletion can destroy work that has not reached D1; the app must warn clearly and the operational recovery policy must be agreed before release.
@@ -154,7 +154,7 @@ The column-level plan, including the stored final selling price per unit (10.2.2
 
 - `settings`, implemented in [0006_reference_data.sql](app/worker/migrations/0006_reference_data.sql)
 - one row with a fixed id (`apotek`), fields nama_apotek, alamat plus the shared sync columns; only an admin may write it
-- numbering rules and operational defaults will be added here when sales are built
+- no receipt numbering is generated (10.2.25); operational defaults will be added here when sales are built
 
 ## 7. Target workflow design
 

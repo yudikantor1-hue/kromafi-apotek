@@ -80,7 +80,7 @@ Goal: turn the UI-derived feature inventory into backend contracts, business rul
 ### 2.7 Offline and sync policy
 
 - **2.7.1** Define offline access/session policy, cache scope, queued-operation ordering, and per-domain conflict/recovery workflows. — **100%** (implemented and verified for items; see 3.4 and 3.5)
-- **2.7.2** Define provisional offline document IDs, official numbering after sync, and offline receipt behavior. — **25%** (decided in 10.1.8; numbering applies to sales, which are not implemented)
+- **2.7.2** Define provisional offline document IDs, official numbering after sync, and offline receipt behavior. — **25%** (document ids are device-generated UUIDs and no numbering is generated, decided in 10.1.8 and 10.2.25; receipt behaviour stays open for sales, which are not implemented)
 
 ### 2.8 API and data model
 
@@ -375,6 +375,7 @@ Everything that needs a client answer, confirmation, or decision lives here. Eac
 - **10.1.10 (B8) — May staff complete and hand over a sale while offline using a provisional receipt/device id until Cloudflare assigns the official sale number after sync?**
   - Why: a pending sale is not yet a server-confirmed transaction, but cash may already have been taken; the cashier needs a clear rule for handover, receipt, and numbering.
   - Owner: client. State: **Answered** — allow handover with a provisional receipt/device id; assign the official sale number after successful sync.
+  - Refined by 10.2.25 (3 November 2026): the nota carries no provisional or official number; it is identified by its UUID and its receipt prints no code.
 
 - **10.1.11 (B9) — When one queued operation conflicts or fails, should synchronization stop for that device, or continue with independent operations while holding dependent ones?**
   - Why: determines whether a sync batch is atomic or can partially succeed, and how staff understand the resulting state.
@@ -550,6 +551,12 @@ These are not blockers for an unrelated first slice. Resolve each before impleme
   - Why: reports and margin checks need the price actually received per unit, not the catalogue price, and the nota-level discount has to reach every line somehow.
   - Owner: client. State: **Answered** (3 November 2026).
   - Recorded answer: **`harga jual final = harga jual − (diskon tagihan ÷ jumlah) − (diskon total tagihan ÷ total jumlah unit seluruh nota)`.** The line discount is divided by that line's own quantity; the nota-level discount is spread evenly across every unit in the nota, not proportionally to line value. Because both subtractions are exact per unit, `Σ(harga jual final × jumlah)` equals `total_tagihan_final` with no remainder, so a per-unit value is rounded only when it is displayed, never before the multiplication.
+  - Not implemented yet: the Penjualan menu and the `sales`/`sale_lines` tables are still planned.
+
+- **10.2.25 — Should a sales nota have a provisional number offline and an official number after sync?**
+  - Why: 10.1.10 approved a provisional receipt followed by a server-assigned official number, but the client asked whether any number is needed at all when every nota already carries a device-generated UUID.
+  - Owner: client. State: **Answered** (3 November 2026).
+  - Recorded answer: **no nota number of any kind.** Each nota is identified only by its UUID, generated on the device when the nota is created, so nothing is reserved offline and nothing is assigned after sync. The printed receipt carries **no code at all** — no provisional number, no official number, and not even a shortened UUID — so it shows only the pharmacy profile, the lines, the totals, the cashier, and the printing date and time. Finding an old nota uses its date, time, amount, or cashier. This supersedes the numbering part of 10.1.10.
   - Not implemented yet: the Penjualan menu and the `sales`/`sale_lines` tables are still planned.
 
 ### 10.3 Decisions already settled — do not ask again
