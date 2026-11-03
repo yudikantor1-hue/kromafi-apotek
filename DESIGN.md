@@ -4,10 +4,9 @@
 
 The Kromafi Apotek system is planned as a maintainable offline-capable web application for one pharmacy, using Cloudflare Pages, Workers, and D1. D1 is the shared source of truth when connected; each device uses a local cache and pending-operation queue while offline.
 
-The UI prototype in `UI/` is the client-approved baseline for design direction and workflow validation. The production application has not been built yet; `app/` is its planned location.
+The UI prototype in `UI/` is the client-approved baseline for design direction and workflow validation. The production application lives in `app/` and is deployed as a trial on Cloudflare, but only the Barang slice is implemented: staff sign-in, staff administration, items, the offline outbox, synchronization, and export/import.
 
-This document describes a target design, not verified implementation. The frontend, API, database,
-data model, and workflows below must be built and tested.
+This document describes the target design for the whole application. Where it describes sales, purchasing, stock, expiry, or reporting, that is planned design, not verified implementation; the implemented parts are marked as such in [PLAN.md](PLAN.md) phase 3 and phase 11.
 
 ## 2. Design principles
 

@@ -4,7 +4,7 @@
 
 Kromafi Apotek needs an offline-capable web application for one pharmacy, used by multiple staff on multiple devices. Cloudflare Pages, Workers, and D1 provide the shared online application and authoritative database. Devices that have already loaded the app must be able to record all approved workflows while offline, then synchronize their local pending operations when connectivity returns.
 
-The product must be built as a real application, not as a prototype-only workflow. The client-approved UI in `UI/` is the design and workflow baseline. The production application has not been built yet; it is planned for `app/` and will become the source of truth for live operations once implemented.
+The product must be built as a real application, not as a prototype-only workflow. The client-approved UI in `UI/` is the design and workflow baseline. The production application lives in `app/`: it is deployed as a trial on Cloudflare and currently implements the Barang slice (access control, staff administration, items, offline sync, encrypted export/import). The remaining 17 menus are still requirements, not implemented behaviour.
 
 ## 2. Users
 

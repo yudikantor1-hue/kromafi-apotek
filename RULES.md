@@ -55,7 +55,8 @@ Our communication and delivery workflow is:
 
 ## Session start
 
-- At the start of every new session or chat, read phase 10 of [PLAN.md](PLAN.md) (questions to answer, confirm, or decide) and the progress summary in phase 16 before continuing. B15, B16, and B17 (scope, todo list, and authorization to start production code) are approved and recorded in 10.1.17–10.1.19.
+- At the start of every new session or chat, read the *Current state and handoff* section of [README.md](README.md) first; it names what is implemented and deployed, the live URL, the checks to run, and the deploy commands.
+- Then read phase 10 of [PLAN.md](PLAN.md) (questions to answer, confirm, or decide) and the progress summary in phase 16 before continuing. B15, B16, and B17 (scope, todo list, and authorization to start production code) are approved and recorded in 10.1.17–10.1.19.
 - Inspect [ai_telegram.py](ai_telegram.py) and confirm what it does, which message it sends, and where it sends the message before using it, then run it once to verify that Telegram delivery works. Running it sends a predefined Telegram message to its configured recipient; this test is intentional even when the client is available.
 
 ## Contacting the client when they are away

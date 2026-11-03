@@ -5,8 +5,10 @@ This directory holds the production application. It currently implements the cli
 list/search/create/edit/activate, offline pending work, idempotent synchronization, conflict history,
 and encrypted export/import.
 
-It is **not deployed**. No Cloudflare account, D1 database, or domain has been provisioned yet
-(P1 in [../PLAN.md](../PLAN.md)); local development only.
+It **is deployed as a trial** to the client's own Cloudflare account at
+https://kromafi-apotek.kromafi.workers.dev, with D1 `kromafi-apotek` and migrations `0001`–`0005`
+applied. It is not a production launch yet: the custom domain, a second admin, and data onboarding
+are still open (P1 in [../PLAN.md](../PLAN.md)).
 
 The approved prototype in [../UI/](../UI) remains the visual and workflow baseline. This app does
 not modify or import the prototype.
@@ -31,7 +33,7 @@ app/
 │  │  └─ exportImport.ts      Encrypted, versioned Barang package
 │  └─ styles.css              Brand stylesheet (no Tailwind CDN)
 ├─ worker/
-│  ├─ migrations/0001_init.sql  D1 schema
+│  ├─ migrations/              D1 schema, 0001–0005, applied in order
 │  ├─ seed/dev.sql              Local development accounts only
 │  └─ src/                      Worker API: auth, permissions, items, sync, staff, audit
 ├─ scripts/dev-api.mjs          Local API fallback (see below)

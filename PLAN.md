@@ -123,7 +123,7 @@ Goal: create the production application foundation and secure access before enab
 
 ### 3.6 Tests
 
-- **3.6.1** Add tests for session expiry, inactive accounts, role restrictions, and API error responses. — **100%** (45 automated tests pass across the Worker and offline suites)
+- **3.6.1** Add tests for session expiry, inactive accounts, role restrictions, and API error responses. — **100%** (58 automated tests pass across the Worker and offline suites)
 
 ### 3.7 Exit gate
 
@@ -135,7 +135,7 @@ Goal: create the production application foundation and secure access before enab
 
 - **3.8.1** Replace the initial-password field with a temporary one-time PIN that the new staff member uses to sign in and set their own password. — **100%** (implemented: 6 digits, 24 hours, single use, PBKDF2-hashed, shown once with a print button; signing in with it opens only the password screen, and every other API route answers 403 password_change_required until a password of at least 8 characters is set)
 - **3.8.2** Allow any number of admin accounts, as decided in 10.2.9, while keeping the guard that the last active admin cannot be removed. — **100%** (the app already accepts multiple admins and refuses to remove the last active one)
-- **3.8.3** Cover the PIN flow with tests: only six digits are accepted, the PIN works exactly once, it is refused after 24 hours, it is refused for a deactivated account, a new PIN invalidates the old one, and the forced password screen blocks the app until a password is set. — **100%** (six tests in tests/worker.test.ts, 51 tests in total; also verified end to end against the local API)
+- **3.8.3** Cover the PIN flow with tests: only six digits are accepted, the PIN works exactly once, it is refused after 24 hours, it is refused for a deactivated account, a new PIN invalidates the old one, and the forced password screen blocks the app until a password is set. — **100%** (six tests in tests/worker.test.ts, 58 tests in total; also verified end to end against the local API)
 
 ---
 
@@ -544,17 +544,18 @@ Goal: prove the approved PWA + Cloudflare architecture with one complete, low-ri
 
 ## 12. Reference material
 
-### 12.1 Verified current state (2 November 2026)
+### 12.1 Verified current state (3 November 2026)
 
 - **12.1.1** `UI/` contains the client-approved prototype and workflow baseline for all 18 menus, including flows and browser-local workflow simulation. It is not the production source.
 - **12.1.2** `app/` contains the production application for the Barang first slice: React/Vite PWA, Worker API, D1 migrations, offline outbox, idempotent sync, conflict history, staff administration, recovery codes, and encrypted export/import.
-- **12.1.3** Automated checks pass: `npm run typecheck` is clean, `npm test` runs 45 tests across the Worker and offline suites, and `npm run build` produces the deployable PWA.
+- **12.1.3** Automated checks pass: `npm run typecheck` is clean, `npm test` runs 58 tests across the Worker and offline suites, and `npm run build` produces the deployable PWA.
 - **12.1.4** The app is deployed as a trial to the client's own Cloudflare account at https://kromafi-apotek.kromafi.workers.dev, with D1 `kromafi-apotek` (`db477559-d51d-40f3-a822-d1cb2c21904e`, region APAC) migrated and a first admin (`admin`) created by `npm run staff:bootstrap -- --remote --username admin`. Staff sign in with a username, not an email.
 - **12.1.5** Workers compatibility is verified on the real `workerd` runtime: `wrangler dev` runs against a local D1 database, and health, sign-in, `401` handling, idempotent sync, and browser reads behave as designed. The earlier `write EOF` fault was an environment defect — a missing Visual C++ 2015–2022 Redistributable (x64) left `workerd.exe` unable to load its UCRT libraries — and installing it fixed the machine.
 - **12.1.6** `workerd` caps PBKDF2 at 100,000 iterations, so the deployed Worker rejected the earlier 210,000-iteration hashes with `500` on every sign-in while local runs stayed green. The setting is now 100,000 — the runtime maximum — and sign-in on the deployed Worker returned `200`. Because older credentials cannot be re-derived, `npm run staff:bootstrap -- --reset` replaces a password and ends its sessions.
 - **12.1.7** A full local backup drill passed: export, restore into an empty database, identical row counts in all seven tables, and the restored database accepted a sign-in and served the same record. Cloudflare Time Travel covers the last 7 days; the export is the portable copy.
 - **12.1.8** Known limits: only the Barang screen is implemented, the other 17 prototype menus are listed but disabled; the custom domain and second admin are open (10.2.1); backup schedule and retention are open (10.2.2); daily close has no prototype workflow (10.2.4).
 - **12.1.9** Selling model confirmed by the client: each buyer uses **their own** Cloudflare account, so one installation means one account, one Worker, one database, and one pharmacy's data. The install sequence in [app/README.md](app/README.md) is the per-buyer procedure.
+- **12.1.10** Migrations `0001`–`0005` are applied on the remote D1 database, and Worker version `7cbce722-0702-46f2-a45a-fbf8a0a5bbef` (commit `0aa136c`) is live: offline work is attributed to the account that recorded it, and work recorded after that account's deactivation is cancelled at processing time (10.2.12). Live checks after that deploy: `/api/health` `200`, `/api/sync/push` without a session `401`, the `author_id` column present in remote D1, and the new cancellation text present in the served bundle.
 
 ### 12.2 Target outcome for version 1.0
 

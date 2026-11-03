@@ -2,6 +2,18 @@
 
 Custom pharmacy application built for one pharmacy, designed to be installed by other pharmacies as their own separate installation (own Cloudflare account, own Worker, own database, own data).
 
+## Current state and handoff
+
+A new session should be able to continue from this section alone.
+
+- **What exists.** `app/` is a working production slice for one screen, Barang: sign-in (password, one-time PIN, and offline sign-in), staff administration, item list/search/create/edit/deactivate, a durable offline outbox, idempotent sync with conflict history, and an encrypted export/import package. `UI/` remains the approved prototype for the other 17 menus; those menus are listed in the app but disabled.
+- **What is live.** The app is deployed to the client's own Cloudflare account at https://kromafi-apotek.kromafi.workers.dev (Worker `kromafi-apotek`, D1 `kromafi-apotek`, id `db477559-d51d-40f3-a822-d1cb2c21904e`). Migrations `0001`–`0005` are applied there. It is a trial deployment, not a production launch: the custom domain, a second admin, and data onboarding are still open.
+- **Checks before finishing any change.** From `app/`: `npm run typecheck`, `npm test`, and `npm run build`. All three must pass; the suites currently hold 58 tests.
+- **Deploying.** From `app/`, apply new migrations with `npx wrangler d1 migrations apply kromafi-apotek --remote`, then `npx wrangler deploy`. Afterwards verify the live Worker: `/api/health` returns `200` and a protected route returns `401` without a session.
+- **Where the rules live.** Every decision question and its recorded answer is in [PLAN.md](PLAN.md) phase 10; keep new answers there and never in the conversation alone. Tables and device storage are in [TABLE.md](TABLE.md). Application behaviour, local setup, and known gaps are in [app/README.md](app/README.md).
+- **Recent work (3 November 2026).** The Petugas screen shows a staff member only their own account (10.2.11). Offline work is now judged by the account that recorded it: work recorded after that account's deactivation is cancelled even when an active account sends the queue (10.2.12).
+- **Conventions.** Speak to the client in Indonesian; keep project files, code, and documentation in English; staff-facing text inside the app stays Indonesian. Do not edit `UI/index.html` by hand — it is generated from `UI/src` by `UI/build.mjs`. Never write passwords, tokens, or session secrets into files, logs, or chat.
+
 ## Roles
 
 ### The client — you
@@ -95,7 +107,7 @@ Every folder and file in the project root, with a short description. Update this
 | [app/worker/src/recovery.ts](app/worker/src/recovery.ts) | One-time recovery codes used for password reset without email. |
 | [app/worker/src/http.ts](app/worker/src/http.ts) | Request helpers: JSON responses, origin checks, cookies, and error shapes. |
 | [app/worker/src/env.ts](app/worker/src/env.ts) | Worker bindings and environment typing. |
-| [app/worker/migrations/](app/worker/migrations) | D1 schema migrations: `0001_init.sql`, `0002_recovery_codes.sql`, `0003_username.sql`. Applied in order. |
+| [app/worker/migrations/](app/worker/migrations) | D1 schema migrations, applied in order: `0001_init.sql`, `0002_recovery_codes.sql`, `0003_username.sql`, `0004_account_pin.sql`, `0005_operation_author.sql`. |
 | [app/worker/seed/dev.sql](app/worker/seed/dev.sql) | Local development accounts only. Never run against the deployed database. |
 | [app/scripts/bootstrap-admin.mjs](app/scripts/bootstrap-admin.mjs) | Creates or resets the first admin from a password typed at the terminal; the password is never written to a file. |
 | [app/scripts/dev-api.mjs](app/scripts/dev-api.mjs) | Local fallback server that runs the same Worker handler and migrations on Node when `workerd` is unavailable. |
