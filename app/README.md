@@ -1,12 +1,13 @@
-# Kromafi Apotek — production application (first slice)
+# Kromafi Apotek — production application
 
-This directory holds the production application. It currently implements the client-approved
-**Barang offline vertical slice** only: staff sign-in, staff administration, Barang
-list/search/create/edit/activate, offline pending work, idempotent synchronization, conflict history,
-and encrypted export/import.
+This directory holds the production application. It implements eight of the client-approved
+menus — **Barang, Jasa, Petugas, Lemari, Metode pembayaran, Dokter, Distributor, and Profil
+apotek** — on one offline engine: staff sign-in, staff administration, list/search/create/edit/
+activate, offline pending work, idempotent synchronization, conflict history, and encrypted
+export/import.
 
 It **is deployed as a trial** to the client's own Cloudflare account at
-https://kromafi-apotek.kromafi.workers.dev, with D1 `kromafi-apotek` and migrations `0001`–`0005`
+https://kromafi-apotek.kromafi.workers.dev, with D1 `kromafi-apotek` and migrations `0001`–`0009`
 applied. It is not a production launch yet: the custom domain, a second admin, and data onboarding
 are still open (P1 in [../PLAN.md](../PLAN.md)).
 

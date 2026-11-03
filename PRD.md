@@ -4,7 +4,7 @@
 
 Kromafi Apotek needs an offline-capable web application for one pharmacy, used by multiple staff on multiple devices. Cloudflare Pages, Workers, and D1 provide the shared online application and authoritative database. Devices that have already loaded the app must be able to record all approved workflows while offline, then synchronize their local pending operations when connectivity returns.
 
-The product must be built as a real application, not as a prototype-only workflow. The client-approved UI in `UI/` is the design and workflow baseline. The production application lives in `app/`: it is deployed as a trial on Cloudflare and currently implements the Barang slice (access control, staff administration, items, offline sync, encrypted export/import). The remaining 17 menus are still requirements, not implemented behaviour.
+The product must be built as a real application, not as a prototype-only workflow. The client-approved UI in `UI/` is the design and workflow baseline. The production application lives in `app/`: it is deployed as a trial on Cloudflare and currently implements eight of the 18 menus — Barang, Jasa, Petugas, Lemari, Metode pembayaran, Dokter, Distributor, and Profil apotek — on one offline-sync engine (access control, staff administration, items, offline sync, encrypted export/import). The remaining 10 menus are still requirements, not implemented behaviour.
 
 ## 2. Users
 
@@ -32,7 +32,7 @@ The product must be built as a real application, not as a prototype-only workflo
 
 ### 4.1 Staff login and access control
 
-- Staff can sign in with their own account.
+- Staff can sign in with their own account, using a username and one password form; the login screen shows the pharmacy name from the database (10.2.18).
 - Failed attempts are limited and tracked to reduce abuse.
 - Inactive or unauthorized accounts cannot access protected functions.
 - Admin and staff roles are enforced by the server, not only by browser behavior.
@@ -187,7 +187,7 @@ The first usable version is accepted when all of the following are true:
 - Who reviews and resolves rejected/conflicting offline operations
 - Recovery policy for pending work if a device is lost or browser data is cleared
 - Offline sales receipt policy and when official sale numbering is assigned
-- Password recovery method and whether an email service will be available
+- Recovery for a single-admin installation that has lost its recovery codes; the recovery-code route, the admin password reset, and the break-glass script exist (10.2.5, 10.2.14, 10.2.15), and no email service is planned
 - Whether daily closing and cash reconciliation are required in version 1.0 and what they must show
 
 ## 10. Notes

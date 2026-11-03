@@ -40,7 +40,7 @@ Goal: confirm what the first release must do and what is intentionally outside s
 
 ### 1.2 Remaining definition work
 
-- **1.2.1** Define the minimum usable workflows for the first release. — **25%** (the Barang slice is defined and delivered; the remaining 17 menus are not yet broken into release-size workflows)
+- **1.2.1** Define the minimum usable workflows for the first release. — **25%** (the Barang slice is defined and delivered; eight of the 18 menus are implemented and the remaining 10 are not yet broken into release-size workflows)
 - **1.2.2** Define the release exit criteria and acceptance checklist. — **25%** (phase 13 lists the readiness definition; the per-menu acceptance checklist is not written yet)
 
 ### 1.3 Exit gate
@@ -127,15 +127,15 @@ Goal: create the production application foundation and secure access before enab
 
 ### 3.7 Exit gate
 
-- **3.7.1** The PWA and Worker are deployable, the Worker reaches D1, and protected routes reject unauthenticated or unauthorized requests. — **Verified on the real runtime.** After the Visual C++ 2015–2022 Redistributable (x64) was installed on the build machine (see [app/README.md](app/README.md)), `workerd` started: `/api/health` returned `database: reachable`, sign-in issued a session, `/api/items` rejected an anonymous request with `401`, a create operation returned `applied` and its replay returned `duplicate`, and the browser loaded the item from that server. `wrangler deploy --dry-run` read all built assets and recognised both the `DB` and `ASSETS` bindings. **Hosted deployment is done** on the client's own Cloudflare account: D1 `kromafi-apotek` (`db477559-d51d-40f3-a822-d1cb2c21904e`, region APAC) has `0001_init.sql` applied, and https://kromafi-apotek.kromafi.workers.dev serves `/api/health` with `database: reachable`, returns `401` for `/api/items`, and returns the built `index.html`. This gate covers 3.1–3.6. P1 is now answered for the domain (10.2.1) and the admin count (10.2.9); 3.8 is scope added on 2 November 2026 and is not covered by this gate. The PIN flow in 3.8 was added and verified afterwards.
+- **3.7.1** The PWA and Worker are deployable, the Worker reaches D1, and protected routes reject unauthenticated or unauthorized requests. — **Verified on the real runtime.** After the Visual C++ 2015–2022 Redistributable (x64) was installed on the build machine (see [app/README.md](app/README.md)), `workerd` started: `/api/health` returned `database: reachable`, sign-in issued a session, `/api/items` rejected an anonymous request with `401`, a create operation returned `applied` and its replay returned `duplicate`, and the browser loaded the item from that server. `wrangler deploy --dry-run` read all built assets and recognised both the `DB` and `ASSETS` bindings. **Hosted deployment is done** on the client's own Cloudflare account: D1 `kromafi-apotek` (`db477559-d51d-40f3-a822-d1cb2c21904e`, region APAC) has `0001_init.sql` applied, and https://kromafi-apotek.kromafi.workers.dev serves `/api/health` with `database: reachable`, returns `401` for `/api/items`, and returns the built `index.html`. This gate covers 3.1–3.6. P1 is now answered for the domain (10.2.1) and the admin count (10.2.9); 3.8 is scope added on 2 November 2026 and is not covered by this gate. The PIN flow in 3.8 was added, verified, and later removed (10.2.20).
 
 ---
 
-### 3.8 Account provisioning with a temporary PIN — 100%
+### 3.8 Account provisioning with a temporary PIN — superseded on 3 November 2026 (10.2.20)
 
-- **3.8.1** Replace the initial-password field with a temporary one-time PIN that the new staff member uses to sign in and set their own password. — **100%** (implemented: 6 digits, 24 hours, single use, PBKDF2-hashed, shown once with a print button; signing in with it opens only the password screen, and every other API route answers 403 password_change_required until a password of at least 8 characters is set). **Superseded on 3 November 2026 (10.2.18):** the login screen no longer accepts a PIN and the screen that exchanged it for a password was removed, so the server-side PIN is now unused by the app.
+- **3.8.1** Replace the initial-password field with a temporary one-time PIN that the new staff member uses to sign in and set their own password. — **100%** (implemented: 6 digits, 24 hours, single use, PBKDF2-hashed, shown once with a print button; signing in with it opens only the password screen, and every other API route answers 403 password_change_required until a password of at least 8 characters is set). **Superseded on 3 November 2026 (10.2.18):** the login screen no longer accepts a PIN and the screen that exchanged it for a password was removed; on the same day the remaining server-side PIN was removed too (10.2.20).
 - **3.8.2** Allow any number of admin accounts, as decided in 10.2.9, while keeping the guard that the last active admin cannot be removed. — **100%** (the app already accepts multiple admins and refuses to remove the last active one)
-- **3.8.3** Cover the PIN flow with tests: only six digits are accepted, the PIN works exactly once, it is refused after 24 hours, it is refused for a deactivated account, a new PIN invalidates the old one, and the forced password screen blocks the app until a password is set. — **100%** (three tests in tests/worker.test.ts (account provisioning), 67 tests in total; also verified end to end against the local API)
+- **3.8.3** Cover account provisioning with tests: a new account signs in with the password the admin typed at creation, a missing or too-short password is refused, and no PIN route exists any more. — **Replaced on 3 November 2026 (10.2.20)** (three tests under `account provisioning` in tests/worker.test.ts, 67 tests in total; also verified end to end against the local API)
 
 ---
 
@@ -464,7 +464,7 @@ These are not blockers for an unrelated first slice. Resolve each before impleme
   - Owner: client. State: **Answered** (2 November 2026).
   - Recorded answer: the number of admins is free and decided by the buyer of each installation; there is no fixed limit. Every account, admin or staff, is created in the Petugas menu.
 
-- **10.2.10 — How should the temporary PIN work when an account is created in the Petugas menu?**
+- **10.2.10 — How should the temporary PIN work when an account is created in the Petugas menu?** *(superseded by 10.2.20)*
   - Why: 10.2.9 makes the Petugas menu the only place accounts are created, but the current form asks the admin to type an initial password for the other person instead of issuing a temporary PIN. See 3.8.
   - Owner: client. State: **Answered** (2 November 2026).
   - Recorded answer: a **6-digit numeric PIN**, valid for **24 hours**, usable **once**, shown to the admin exactly once at creation and printable on paper. Signing in with the PIN does not open the app: it opens a mandatory screen where the staff member sets their own password (at least 8 characters), and only then is the session usable. The PIN is stored as a salted hash like the recovery codes, a deactivated account cannot use it, and issuing a new PIN invalidates the previous one.
@@ -497,7 +497,7 @@ These are not blockers for an unrelated first slice. Resolve each before impleme
 - **10.2.15 — How does the pharmacy recover when the only admin forgets their password?**
   - Why: an admin cannot reset their own password from the Petugas screen and the last active admin cannot be deactivated, so a single-admin installation has no in-app path once its recovery codes are lost.
   - Owner: client. State: **Open**.
-  - Recommendation, in this order: (1) the eight one-time recovery codes issued at bootstrap, printed and stored safely, work from the login screen's *Lupa password?*; (2) a second active admin on every installation, so each can reset the other from Petugas; (3) the break-glass command `node scripts/bootstrap-admin.mjs --remote --reset --username <admin>`, which needs a terminal and the Cloudflare account credentials, so possession of the deployment is the proof of ownership. A shipped app cannot safely offer "reset any admin without a credential", and no email service is available (P5).
+  - Recommendation, in this order: (1) the eight one-time recovery codes issued at bootstrap, printed and stored safely, are accepted by `POST /api/recovery/reset`, which the login screen no longer links (10.2.18); (2) a second active admin on every installation, so each can reset the other from Petugas; (3) the break-glass command `node scripts/bootstrap-admin.mjs --remote --reset --username <admin>`, which needs a terminal and the Cloudflare account credentials, so possession of the deployment is the proof of ownership. A shipped app cannot safely offer "reset any admin without a credential", and no email service is available (P5).
 
 - **10.2.16 — Should services (Jasa) share one catalogue table with goods (Barang)?**
   - Why: the agreed Excel import (10.2.6) already treats goods and services as one list with a `type` column, and 4.1.1 builds both screens from one catalogue.
@@ -654,7 +654,7 @@ Cloudflare D1 (authoritative shared database)
 The approved prototype is the default baseline for version 1.0 screen scope and visible interactions. Browser storage and mock data are prototype implementation details, not production persistence rules. The client-confirmed rules in 12.6 take precedence; clarify only behavior the prototype does not specify and that affects implementation.
 
 - **12.4.1 Login and logout** — Authenticate staff, create/end a server session, and return the current user's identity and permissions. The prototype locks an account after five failed attempts in a 15-minute window; production enforcement is server-side. — **Implemented**
-- **12.4.2 Lupa password** — Provide a secure recovery or admin reset flow. The prototype reports that reset links are unavailable because no server or email service is configured. — **Implemented** as one-time recovery codes (10.2.5)
+- **12.4.2 Lupa password** — Provide a secure recovery or admin reset flow. The prototype reports that reset links are unavailable because no server or email service is configured. — **Implemented** as one-time recovery codes (10.2.5) through `POST /api/recovery/reset`, which the login screen no longer links (10.2.18); an admin can also reset a password from the Petugas detail (10.2.14)
 - **12.4.3 Petugas** — List and maintain staff accounts, roles, active status, and credentials; account management is admin-only and staff can view their own record. — **Implemented**
 - **12.4.4 Barang** — Search, list, create, update, and deactivate items with name, unit, cabinet, prices, and stock visibility; record every stock edit as an audited movement. — **Implemented** for items; stock movements belong to phase 5
 - **12.4.5 Distributor** — Maintain supplier records and active status for purchasing; existing invoices keep their recorded supplier name. — **Planned**

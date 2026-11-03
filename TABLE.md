@@ -23,7 +23,7 @@ is applied locally and still has to be applied to the remote database.
 - Fields: `id` (text, primary key), `name`, `username` (unique, case-insensitive, 3-32 lowercase characters), `role` (`admin`/`staf`), `status` (`Aktif`/`Tidak aktif`), `password_hash`, `password_salt`, `password_iterations`, `deactivated_at`, `created_at`, `updated_at`.
 - Keys: primary key `id`; unique index on `username`.
 - Access and lifecycle: written by admin-only staff administration in the Petugas screen; read by the login handler and every authenticated request. Passwords are PBKDF2-SHA-256 hashes; plain passwords are never stored, and a reset ends that account's sessions.
-- Source of truth: [0001_init.sql](app/worker/migrations/0001_init.sql).
+- Source of truth: [0001_init.sql](app/worker/migrations/0001_init.sql); migration `0009_drop_pin.sql` dropped the unused temporary-PIN columns (10.2.20).
 
 **`sessions`** — signed-in browser sessions.
 
