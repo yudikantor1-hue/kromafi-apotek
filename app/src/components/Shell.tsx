@@ -53,6 +53,8 @@ const NAV_ITEMS: NavEntry[] = [
 
 interface ShellProps {
   session: Session;
+  /** The name from the database; the fallback keeps the shell usable before it loads. */
+  pharmacyName: string;
   page: string;
   onNavigate: (page: string) => void;
   onLogout: () => void;
@@ -69,6 +71,7 @@ interface ShellProps {
 
 export function Shell({
   session,
+  pharmacyName,
   page,
   onNavigate,
   onLogout,
@@ -92,7 +95,7 @@ export function Shell({
 
       <aside className={`sidebar${drawerOpen ? ' open' : ''}`} aria-label="Navigasi utama">
         <div className="sidebar-brand">
-          <h1>Kromafi Apotek</h1>
+          <h1>{pharmacyName || 'Kromafi Apotek'}</h1>
         </div>
         <div className="sidebar-staff">
           <div className="name">{session.staff.name}</div>

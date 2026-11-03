@@ -561,6 +561,7 @@ export default function App() {
   return (
     <Shell
       session={session}
+      pharmacyName={pharmacyName}
       page={page}
       onNavigate={setPage}
       enabledPages={[

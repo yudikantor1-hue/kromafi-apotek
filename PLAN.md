@@ -496,7 +496,8 @@ These are not blockers for an unrelated first slice. Resolve each before impleme
 
 - **10.2.15 — How does the pharmacy recover when the only admin forgets their password?**
   - Why: an admin cannot reset their own password from the Petugas screen and the last active admin cannot be deactivated, so a single-admin installation has no in-app path once its recovery codes are lost.
-  - Owner: client. State: **Open**.
+  - Owner: client. State: **Answered** (3 November 2026).
+  - Recorded answer: the client approved the three steps below as the standing procedure, used in the stated order, and no new in-app recovery path is built. The eight one-time recovery codes come first, a second active admin on every installation is the normal fallback, and the break-glass terminal command is the last resort. A credential-free in-app admin reset is not added, because possession of the deployment is the only safe proof of ownership while no email service exists (P5). Creating that second admin stays with 10.2.9, and the installation scope with 10.2.1.
   - Recommendation, in this order: (1) the eight one-time recovery codes issued at bootstrap, printed and stored safely, are accepted by `POST /api/recovery/reset`, which the login screen no longer links (10.2.18); (2) a second active admin on every installation, so each can reset the other from Petugas; (3) the break-glass command `node scripts/bootstrap-admin.mjs --remote --reset --username <admin>`, which needs a terminal and the Cloudflare account credentials, so possession of the deployment is the proof of ownership. A shipped app cannot safely offer "reset any admin without a credential", and no email service is available (P5).
 
 - **10.2.16 — Should services (Jasa) share one catalogue table with goods (Barang)?**
@@ -526,6 +527,12 @@ These are not blockers for an unrelated first slice. Resolve each before impleme
   - Owner: client. State: **Answered** (3 November 2026).
   - Recorded answer: **remove the PIN entirely.** Creating an account now takes an initial password of at least 8 characters that the admin types and hands to its owner. The PIN generator, the `POST /api/staff/:id/pin` route, the `POST /api/login` PIN branch, the forced-password guard, and the PIN dialog are gone; migration `0009_drop_pin.sql` drops `staff.pin_hash`, `pin_salt`, `pin_iterations`, `pin_expires_at`, and `sessions.must_change_password`. A staff member changes their own password from their account detail, and an admin can still reset it (10.2.14).
   - Implemented in `worker/src/staff.ts`, `worker/src/auth.ts`, `worker/migrations/0009_drop_pin.sql`, `src/components/PetugasPage.tsx`, and `src/lib/api.ts`.
+
+- **10.2.21 — Should the sidebar title show the pharmacy name from the database?**
+  - Why: the sidebar brand was hard-coded as *Kromafi Apotek* while the pharmacy profile in D1 is named *Kromafi Farma*, so one screen showed two different pharmacy names.
+  - Owner: client. State: **Answered** (3 November 2026).
+  - Recorded answer: the sidebar shows the pharmacy name from the database — the same value the login screen already reads through `GET /api/pharmacy` — cached on the device so it also appears offline. The hard-coded *Kromafi Apotek* stays only as the fallback used before any pharmacy profile has been loaded. An installation bought by another pharmacy therefore shows its own name without a code change.
+  - Implemented in `src/components/Shell.tsx` and `src/App.tsx`.
 
 ### 10.3 Decisions already settled — do not ask again
 
@@ -780,5 +787,5 @@ The approved prototype is the default baseline for version 1.0 screen scope and 
 - **16.1.4** Phase 7 is 25% because local backup and offline sync work but cloud restore and two-device testing are pending.
 - **16.1.5** Phase 9 is 25% because a trial deployment exists but the agreed domain, data onboarding, training, and handover do not.
 - **16.1.6** The verified facts behind these values are listed in 12.1; B15, B16, and B17 are approved and recorded in 10.1.17–10.1.19.
-- **16.1.7** Every item in 10.1 and 10.2 has a recorded answer except 10.2.15 (single-admin password recovery), which stays **Open** for the client. One item, 10.2.1, stays **Partly answered** until the client explicitly confirms that the installation belongs to their own Cloudflare account; the trial already runs there. The rest of the remaining work is implementation.
+- **16.1.7** Every item in 10.1 and 10.2 now has a recorded answer, including 10.2.15 (single-admin password recovery), which the client approved on 3 November 2026. One item, 10.2.1, stays **Partly answered** until the client explicitly confirms that the installation belongs to their own Cloudflare account; the trial already runs there. The rest of the remaining work is implementation.
 - **16.1.8** Phase 4 is 25% because all reference lists and the pharmacy profile are implemented while purchasing, sales, and the Jasa screen are not.

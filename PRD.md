@@ -187,7 +187,6 @@ The first usable version is accepted when all of the following are true:
 - Who reviews and resolves rejected/conflicting offline operations
 - Recovery policy for pending work if a device is lost or browser data is cleared
 - Offline sales receipt policy and when official sale numbering is assigned
-- Recovery for a single-admin installation that has lost its recovery codes; the recovery-code route, the admin password reset, and the break-glass script exist (10.2.5, 10.2.14, 10.2.15), and no email service is planned
 - Whether daily closing and cash reconciliation are required in version 1.0 and what they must show
 
 ## 10. Notes
