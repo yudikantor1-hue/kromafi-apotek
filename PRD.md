@@ -32,7 +32,7 @@ The product must be built as a real application, not as a prototype-only workflo
 
 ### 4.1 Staff login and access control
 
-- Staff can sign in with their own account, using a username and one password form; the login screen shows the pharmacy name from the database (10.2.18).
+- Staff can sign in with their own account, using a username and one password form; the login title is the fixed *Kromafi Apotek*, while the sidebar shows the pharmacy name from the database (10.2.18, 10.2.22).
 - Failed attempts are limited and tracked to reduce abuse.
 - Inactive or unauthorized accounts cannot access protected functions.
 - Admin and staff roles are enforced by the server, not only by browser behavior.

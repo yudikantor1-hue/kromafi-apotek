@@ -226,7 +226,7 @@ The schedule, retention period, and who verifies a restore are still undecided (
 - Role matrix enforced on the server: any active staff may read and write Barang and see the staff
   list; account changes, password resets, and audit history are admin-only. Signed-out requests get
   `401`; mismatched `Origin` on a mutation gets `403`.
-- The sidebar brand and the login title both show the pharmacy name from the database (`GET /api/pharmacy`), cached on the device so it also appears offline; the hard-coded *Kromafi Apotek* is only the fallback before a profile has loaded (10.2.21).
+- The sidebar brand shows the pharmacy name from the database (`GET /api/pharmacy`), cached on the device so it also appears offline; the hard-coded *Kromafi Apotek* is only the fallback before a profile has loaded (10.2.21). The login title is the fixed *Kromafi Apotek* and never changes with the database (10.2.22).
 - Offline sign-in works only for accounts that have signed in online on that device before. The
   device verifies the password against its own PBKDF2 credential; the server hash is never copied.
   That device-side hash uses 210,000 iterations because it runs in the browser, not in `workerd`.

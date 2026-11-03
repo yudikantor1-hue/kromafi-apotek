@@ -224,10 +224,11 @@ export default function App() {
     };
   }, [refreshLocal]);
 
-  // The login screen shows the pharmacy name before there is a session, so
-  // it is read from a public route and cached for the next offline sign-in.
+  // The sidebar brand shows the pharmacy name, which is not part of the session,
+  // so it is read from a public route until a name is known and cached for the
+  // next offline start. The login title stays the fixed product name (10.2.22).
   useEffect(() => {
-    if (phase !== 'login' || !navigator.onLine) return;
+    if (pharmacyName || !navigator.onLine || phase === 'boot') return;
     let cancelled = false;
     void api.pharmacy().then(async (result) => {
       const name = result.ok ? (result.data?.namaApotek ?? '').trim() : '';
@@ -238,7 +239,7 @@ export default function App() {
     return () => {
       cancelled = true;
     };
-  }, [phase]);
+  }, [phase, pharmacyName]);
 
   useEffect(() => {
     const goOnline = () => {
@@ -458,7 +459,6 @@ export default function App() {
         error={loginError}
         offline={!online}
         offlineReady={offlineReady}
-        pharmacyName={pharmacyName}
       />
     );
   }

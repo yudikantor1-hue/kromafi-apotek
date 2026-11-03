@@ -7,11 +7,9 @@ interface LoginPageProps {
   error: string;
   offline: boolean;
   offlineReady: boolean;
-  /** The pharmacy name from the database; the fallback keeps the screen usable. */
-  pharmacyName: string;
 }
 
-export function LoginPage({ onSubmit, busy, error, offline, offlineReady, pharmacyName }: LoginPageProps) {
+export function LoginPage({ onSubmit, busy, error, offline, offlineReady }: LoginPageProps) {
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
@@ -28,7 +26,7 @@ export function LoginPage({ onSubmit, busy, error, offline, offlineReady, pharma
           <div className="login-logo">
             <IconBuilding />
           </div>
-          <h1 className="login-title">{pharmacyName || 'Kromafi Apotek'}</h1>
+          <h1 className="login-title">Kromafi Apotek</h1>
           <p className="login-subtitle">Point of Sale &amp; Clinical Inventory System</p>
         </div>
 

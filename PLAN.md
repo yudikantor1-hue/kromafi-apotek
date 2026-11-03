@@ -534,6 +534,12 @@ These are not blockers for an unrelated first slice. Resolve each before impleme
   - Recorded answer: the sidebar shows the pharmacy name from the database — the same value the login screen already reads through `GET /api/pharmacy` — cached on the device so it also appears offline. The hard-coded *Kromafi Apotek* stays only as the fallback used before any pharmacy profile has been loaded. An installation bought by another pharmacy therefore shows its own name without a code change.
   - Implemented in `src/components/Shell.tsx` and `src/App.tsx`.
 
+- **10.2.22 — Which screen keeps the fixed *Kromafi Apotek* title?**
+  - Why: after 10.2.21 the login title and the sidebar both read the database name, but the client wants the reverse of what 10.2.21 implied: the login screen carried the database name while the sidebar still showed *Kromafi Apotek*.
+  - Owner: client. State: **Answered** (3 November 2026).
+  - Recorded answer: **the login title is fixed as *Kromafi Apotek* and never changes**; the sidebar brand is the only place that shows the pharmacy name from the database. The login screen no longer receives a name prop, and the public `GET /api/pharmacy` read stays only to fill and cache the sidebar name, so the sidebar still shows it offline.
+  - Implemented in `src/components/LoginPage.tsx` and `src/App.tsx`.
+
 ### 10.3 Decisions already settled — do not ask again
 
 - **10.3.1** The product is a PWA for one pharmacy, used by multiple staff on multiple devices.
