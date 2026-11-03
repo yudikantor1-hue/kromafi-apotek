@@ -2,25 +2,54 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { BarangPage } from './components/BarangPage';
 import { ExportModal } from './components/ExportModal';
 import { IconDownload, IconPlus, IconSearch } from './components/Icons';
+import { JasaPage } from './components/JasaPage';
 import { LoginPage } from './components/LoginPage';
 import { PetugasPage } from './components/PetugasPage';
+import { ProfilApotekPage } from './components/ProfilApotekPage';
+import { ReferencePage } from './components/ReferencePage';
 import { SetPasswordPage } from './components/SetPasswordPage';
 import { SetupPage } from './components/SetupPage';
 import { Shell } from './components/Shell';
 import { api } from './lib/api';
 import { assertImportAllowed, ImportError, readPackage } from './lib/exportImport';
-import { itemsAll, metaDelete, metaGet, metaSet, outboxCount } from './lib/idb';
+import {
+  itemsAll,
+  metaDelete,
+  metaGet,
+  metaSet,
+  outboxCount,
+  STORE,
+  recordsAll,
+} from './lib/idb';
 import { provisionCredential, verifyOfflineCredential } from './lib/offlineAuth';
 import {
   discardOperation,
   getOrCreateDeviceId,
   lastSyncAt,
   loadVisibleItems,
+  loadVisiblePharmacy,
+  loadVisibleReferences,
+  PHARMACY_KEY,
   queueItemSave,
+  queuePharmacySave,
+  queueReferenceSave,
   replaceLocalItems,
   syncNow,
 } from './lib/sync';
-import type { Item, ItemPayload, OutboxOperation, Session, VisibleItem } from './types';
+import type {
+  Item,
+  ItemPayload,
+  OutboxOperation,
+  PharmacyPayload,
+  PharmacyProfile,
+  Reference,
+  ReferenceEntity,
+  ReferencePayload,
+  Session,
+  VisibleItem,
+  VisiblePharmacy,
+  VisibleReference,
+} from './types';
 
 const SESSION_KEY = 'session';
 const OFFLINE_USER_KEY = 'offlineUsername';
@@ -38,10 +67,26 @@ const IMPORT_MESSAGES: Record<string, string> = {
   pending_operations_exist: 'Impor diblokir karena masih ada perubahan yang belum terkirim.',
 };
 
+const EMPTY_REFERENCES: Record<ReferenceEntity, VisibleReference[]> = {
+  cabinet: [],
+  payment_method: [],
+  doctor: [],
+  supplier: [],
+};
+
+const PAGE_LABELS: Record<string, string> = {
+  lemari: 'lemari',
+  'metode pembayaran': 'metode pembayaran',
+  dokter: 'dokter',
+  distributor: 'distributor',
+};
+
 export default function App() {
   const [phase, setPhase] = useState<Phase>('boot');
   const [session, setSession] = useState<Session | null>(null);
   const [items, setItems] = useState<VisibleItem[]>([]);
+  const [references, setReferences] = useState<Record<ReferenceEntity, VisibleReference[]>>(EMPTY_REFERENCES);
+  const [pharmacy, setPharmacy] = useState<VisiblePharmacy | null>(null);
   const [outbox, setOutbox] = useState<OutboxOperation[]>([]);
   const [lastSync, setLastSync] = useState<string | null>(null);
   const [online, setOnline] = useState(typeof navigator === 'undefined' ? true : navigator.onLine);
@@ -59,7 +104,7 @@ export default function App() {
   const [cursor, setCursor] = useState<string | null>(null);
 
   const [page, setPage] = useState('barang');
-  const [petugasAddSignal, setPetugasAddSignal] = useState(0);
+  const [addSignal, setAddSignal] = useState(0);
   const [filter, setFilter] = useState('semua');
   const [query, setQuery] = useState('');
   const [searchOpen, setSearchOpen] = useState(false);
@@ -78,7 +123,21 @@ export default function App() {
 
   const refreshLocal = useCallback(async () => {
     const { items: visible, outbox: queued } = await loadVisibleItems();
+    const [cabinets, paymentMethods, doctors, suppliers, profile] = await Promise.all([
+      loadVisibleReferences('cabinet'),
+      loadVisibleReferences('payment_method'),
+      loadVisibleReferences('doctor'),
+      loadVisibleReferences('supplier'),
+      loadVisiblePharmacy(),
+    ]);
     setItems(visible);
+    setReferences({
+      cabinet: cabinets,
+      payment_method: paymentMethods,
+      doctor: doctors,
+      supplier: suppliers,
+    });
+    setPharmacy(profile);
     setOutbox(queued);
     setLastSync(await lastSyncAt());
     setCursor((await metaGet<string>('cursor')) ?? null);
@@ -132,7 +191,12 @@ export default function App() {
       const storedSession = await metaGet<Session>(SESSION_KEY);
       const offlineUsername =
         (await metaGet<string>(OFFLINE_USER_KEY)) ?? (await metaGet<string>('offlineUserEmail'));
-      const [localItems, pending] = await Promise.all([itemsAll(), outboxCount()]);
+      const [localItems, localReferences, localPharmacy, pending] = await Promise.all([
+        itemsAll(),
+        recordsAll<Reference>(STORE.cabinets),
+        metaGet<PharmacyProfile>(PHARMACY_KEY),
+        outboxCount(),
+      ]);
       if (cancelled) return;
 
       setOfflineReady(Boolean(offlineUsername));
@@ -145,7 +209,9 @@ export default function App() {
 
       setSession(storedSession);
       const localCursor = await metaGet<string>('cursor');
-      setPhase(localItems.length === 0 && !localCursor ? 'setup' : 'app');
+      const hasLocalData =
+        localItems.length > 0 || localReferences.length > 0 || Boolean(localPharmacy) || Boolean(localCursor);
+      setPhase(hasLocalData ? 'app' : 'setup');
       void pending;
     })();
 
@@ -345,6 +411,29 @@ export default function App() {
     showNotice('Anda sudah keluar. Data di perangkat tetap tersimpan.');
   }
 
+  /** Shared post-save flow: queue locally, then confirm with the centre online. */
+  async function saveLocally(queue: () => Promise<unknown>): Promise<string | null> {
+    setSaving(true);
+    try {
+      await queue();
+      await refreshLocal();
+
+      if (navigator.onLine) {
+        await runSync({ silent: true });
+        const remaining = await outboxCount();
+        if (remaining > 0) showNotice('Ada perubahan yang perlu diperiksa. Lihat daftar di halaman terkait.');
+        else showNotice('Perubahan dikonfirmasi pusat.');
+      } else {
+        showNotice('Tersimpan di perangkat. Menunggu dikirim ke pusat.');
+      }
+      return null;
+    } catch {
+      return 'Gagal menyimpan di perangkat ini. Penyimpanan browser mungkin penuh.';
+    } finally {
+      setSaving(false);
+    }
+  }
+
   async function handleSave(payload: ItemPayload, itemId?: string, confirmedVersion = 0) {
     setSaving(true);
     try {
@@ -369,12 +458,31 @@ export default function App() {
     }
   }
 
+  function handleReferenceSave(entity: ReferenceEntity) {
+    return (payload: ReferencePayload, recordId?: string, confirmedVersion = 0) =>
+      saveLocally(() =>
+        queueReferenceSave({
+          entity,
+          recordId,
+          confirmedVersion,
+          payload,
+          authorId: session?.staff.id ?? '',
+        }),
+      );
+  }
+
+  function handlePharmacySave(payload: PharmacyPayload, confirmedVersion: number) {
+    return saveLocally(() =>
+      queuePharmacySave({ payload, confirmedVersion, authorId: session?.staff.id ?? '' }),
+    );
+  }
+
   async function handleSetupSync() {
     setSetupError('');
     const ok = await runSync();
     if (ok) {
       setPhase('app');
-      showNotice('Data Barang dimuat dari Cloudflare.');
+      showNotice('Data apotek dimuat dari Cloudflare.');
     } else {
       setSetupError('Gagal memuat data dari pusat. Periksa koneksi lalu coba lagi, atau impor file.');
     }
@@ -462,12 +570,79 @@ export default function App() {
     .filter((item) => !item.pending)
     .map(({ pending: _pending, pendingOperationId: _id, pendingAction: _action, ...item }) => item);
 
+  const activeCabinetNames = references.cabinet
+    .filter((record) => record.status === 'Aktif')
+    .map((record) => record.nama);
+
+  const referenceAddButton = (label: string) => (
+    <button
+      type="button"
+      className="btn btn-primary btn-icon"
+      title={label}
+      aria-label={label}
+      onClick={() => setAddSignal((value) => value + 1)}
+    >
+      <IconPlus size={18} />
+    </button>
+  );
+
+  let headerActions: React.ReactNode;
+  if (page === 'petugas') {
+    headerActions =
+      session.staff.role === 'admin' ? referenceAddButton('Tambah petugas') : null;
+  } else if (page === 'jasa') {
+    headerActions = referenceAddButton('Tambah jasa');
+  } else if (PAGE_LABELS[page]) {
+    headerActions = referenceAddButton(`Tambah ${PAGE_LABELS[page]}`);
+  } else if (page === 'profil apotek') {
+    headerActions = null;
+  } else {
+    headerActions = (
+      <>
+        <button
+          type="button"
+          className="btn btn-secondary btn-icon"
+          title={searchOpen ? 'Tutup pencarian' : 'Cari barang'}
+          aria-label={searchOpen ? 'Tutup pencarian' : 'Cari barang'}
+          aria-pressed={searchOpen}
+          onClick={() => {
+            setSearchOpen((open) => {
+              if (open) setQuery('');
+              return !open;
+            });
+          }}
+        >
+          <IconSearch size={18} />
+        </button>
+        <button
+          type="button"
+          className="btn btn-secondary btn-icon"
+          onClick={() => setExportOpen(true)}
+          title="Ekspor data Barang"
+          aria-label="Ekspor data Barang"
+        >
+          <IconDownload size={18} />
+        </button>
+        {referenceAddButton('Tambah barang')}
+      </>
+    );
+  }
+
   return (
     <Shell
       session={session}
       page={page}
       onNavigate={setPage}
-      enabledPages={['barang', 'petugas']}
+      enabledPages={[
+        'barang',
+        'jasa',
+        'petugas',
+        'lemari',
+        'metode pembayaran',
+        'dokter',
+        'distributor',
+        'profil apotek',
+      ]}
       onLogout={handleLogout}
       queueCount={outbox.length}
       onSync={() => void runSync()}
@@ -475,99 +650,114 @@ export default function App() {
       online={online}
       lastSync={lastSync}
       notice={notice}
-      headerActions={
-        page === 'petugas' ? (
-          session.staff.role === 'admin' ? (
-            <button
-              type="button"
-              className="btn btn-primary btn-icon"
-              title="Tambah petugas"
-              aria-label="Tambah petugas"
-              onClick={() => setPetugasAddSignal((value) => value + 1)}
-            >
-              <IconPlus size={18} />
-            </button>
-          ) : null
-        ) : (
-          <>
-            <button
-              type="button"
-              className="btn btn-secondary btn-icon"
-              title={searchOpen ? 'Tutup pencarian' : 'Cari barang'}
-              aria-label={searchOpen ? 'Tutup pencarian' : 'Cari barang'}
-              aria-pressed={searchOpen}
-              onClick={() => {
-                setSearchOpen((open) => {
-                  if (open) setQuery('');
-                  return !open;
-                });
-              }}
-            >
-              <IconSearch size={18} />
-            </button>
-            <button
-              type="button"
-              className="btn btn-secondary btn-icon"
-              onClick={() => setExportOpen(true)}
-              title="Ekspor data Barang"
-              aria-label="Ekspor data Barang"
-            >
-              <IconDownload size={18} />
-            </button>
-            <button
-              type="button"
-              className="btn btn-primary btn-icon"
-              title="Tambah barang"
-              aria-label="Tambah barang"
-              onClick={() => {
-                setEditingId(null);
-                setFormOpen(true);
-              }}
-            >
-              <IconPlus size={18} />
-            </button>
-          </>
-        )
-      }
+      headerActions={headerActions}
     >
       {page === 'petugas' && (
         <PetugasPage
           isAdmin={session.staff.role === 'admin'}
           selfId={session.staff.id}
-          addSignal={petugasAddSignal}
+          addSignal={addSignal}
+        />
+      )}
+
+      {page === 'jasa' && (
+        <JasaPage
+          items={items}
+          outbox={outbox}
+          addSignal={addSignal}
+          saving={saving}
+          onSave={handleSave}
+        />
+      )}
+
+      {page === 'lemari' && (
+        <ReferencePage
+          entity="cabinet"
+          noun="lemari"
+          records={references.cabinet}
+          outbox={outbox}
+          addSignal={addSignal}
+          saving={saving}
+          onSave={handleReferenceSave('cabinet')}
+        />
+      )}
+
+      {page === 'metode pembayaran' && (
+        <ReferencePage
+          entity="payment_method"
+          noun="metode pembayaran"
+          records={references.payment_method}
+          outbox={outbox}
+          addSignal={addSignal}
+          saving={saving}
+          onSave={handleReferenceSave('payment_method')}
+        />
+      )}
+
+      {page === 'dokter' && (
+        <ReferencePage
+          entity="doctor"
+          noun="dokter"
+          records={references.doctor}
+          outbox={outbox}
+          addSignal={addSignal}
+          saving={saving}
+          onSave={handleReferenceSave('doctor')}
+        />
+      )}
+
+      {page === 'distributor' && (
+        <ReferencePage
+          entity="supplier"
+          noun="distributor"
+          records={references.supplier}
+          outbox={outbox}
+          addSignal={addSignal}
+          saving={saving}
+          onSave={handleReferenceSave('supplier')}
+        />
+      )}
+
+      {page === 'profil apotek' && (
+        <ProfilApotekPage
+          profile={pharmacy}
+          isAdmin={session.staff.role === 'admin'}
+          saving={saving}
+          onSave={handlePharmacySave}
         />
       )}
 
       {page === 'barang' && (
-      <BarangPage
-        items={items}
-        outbox={outbox}
-        filter={filter}
-        onFilterChange={setFilter}
-        query={query}
-        onQueryChange={setQuery}
-        searchOpen={searchOpen}
-        detailId={detailId}
-        onDetailChange={setDetailId}
-        formOpen={formOpen}
-        editingId={editingId}
-        onEdit={(item) => {
-          setEditingId(item.id);
-          setDetailId(null);
-          setFormOpen(true);
-        }}
-        onCloseForm={() => {
-          setFormOpen(false);
-          setEditingId(null);
-        }}
-        onSave={handleSave}
-        onDiscard={async (operationId) => {
-          await discardOperation(operationId);
-          await refreshLocal();
-          showNotice('Perubahan yang ditahan sudah dibuang dari perangkat ini.');
-        }}
-        saving={saving}
-      />
+        <BarangPage
+          items={items}
+          outbox={outbox}
+          cabinetNames={activeCabinetNames}
+          filter={filter}
+          onFilterChange={setFilter}
+          query={query}
+          onQueryChange={setQuery}
+          searchOpen={searchOpen}
+          detailId={detailId}
+          onDetailChange={setDetailId}
+          formOpen={formOpen}
+          editingId={editingId}
+          onEdit={(item) => {
+            setEditingId(item.id);
+            setDetailId(null);
+            setFormOpen(true);
+          }}
+          onCloseForm={() => {
+            setFormOpen(false);
+            setEditingId(null);
+          }}
+          onSave={handleSave}
+          onDiscard={async (operationId) => {
+            await discardOperation(operationId);
+            await refreshLocal();
+            showNotice('Perubahan yang ditahan sudah dibuang dari perangkat ini.');
+          }}
+          saving={saving}
+        />
       )}
 
       {exportOpen && (

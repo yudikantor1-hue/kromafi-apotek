@@ -1,4 +1,11 @@
-import type { Item, OutboxOperation, Staff, SyncResult } from '../types';
+import type {
+  Item,
+  OutboxOperation,
+  PharmacyProfile,
+  Reference,
+  Staff,
+  SyncResult,
+} from '../types';
 
 export interface ApiResult<T> {
   ok: boolean;
@@ -61,7 +68,16 @@ export const api = {
   me: () => request<{ staff: Staff; serverTime: string }>('/api/me'),
 
   snapshot: () =>
-    request<{ items: Item[]; cursor: string; serverTime: string }>('/api/sync/snapshot'),
+    request<{
+      items: Item[];
+      cabinets: Reference[];
+      paymentMethods: Reference[];
+      doctors: Reference[];
+      suppliers: Reference[];
+      settings: PharmacyProfile | null;
+      cursor: string;
+      serverTime: string;
+    }>('/api/sync/snapshot'),
 
   push: (deviceId: string, operations: OutboxOperation[]) =>
     request<{ results: SyncResult[]; serverTime: string; cursor: string }>('/api/sync/push', {

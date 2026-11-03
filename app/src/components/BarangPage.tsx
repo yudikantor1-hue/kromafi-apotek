@@ -21,6 +21,8 @@ const HELD_MESSAGES: Record<string, string> = {
 interface BarangPageProps {
   items: VisibleItem[];
   outbox: OutboxOperation[];
+  /** Names of active cabinets, offered next to names items already use. */
+  cabinetNames?: string[];
   filter: string;
   onFilterChange: (value: string) => void;
   query: string;
@@ -83,6 +85,7 @@ function validate(form: FormState): string {
 export function BarangPage({
   items,
   outbox,
+  cabinetNames = [],
   filter,
   onFilterChange,
   query,
@@ -117,6 +120,8 @@ export function BarangPage({
   }, [filter, query]);
 
   const filtered = items.filter((item) => {
+    // Services have their own screen; this list is goods only (10.2.16).
+    if (item.type === 'jasa') return false;
     if (filter === 'aktif' && item.status !== 'Aktif') return false;
     if (filter === 'tidak aktif' && item.status !== 'Tidak aktif') return false;
     const needle = query.trim().toLowerCase();
@@ -125,12 +130,15 @@ export function BarangPage({
   });
 
   const visible = filtered.slice(0, visibleCount);
-  const held = outbox.filter((operation) => operation.status === 'held');
+  const held = outbox.filter(
+    (operation): operation is Extract<OutboxOperation, { entity: 'item' }> =>
+      operation.entity === 'item' && operation.payload.type !== 'jasa' && operation.status === 'held',
+  );
   const unresolved = held;
   const heldOperationIds = new Set(held.map((operation) => operation.operationId));
-  const lemariOptions = [...new Set(items.map((item) => item.lemari).filter(Boolean))].sort((a, b) =>
-    a.localeCompare(b, 'id', { sensitivity: 'base' }),
-  );
+  const lemariOptions = [...new Set([...cabinetNames, ...items.map((item) => item.lemari)])]
+    .filter(Boolean)
+    .sort((a, b) => a.localeCompare(b, 'id', { sensitivity: 'base' }));
 
   async function submit(event: React.FormEvent) {
     event.preventDefault();
@@ -141,6 +149,7 @@ export function BarangPage({
     }
 
     const payload: ItemPayload = {
+      type: 'barang',
       nama: form.nama.trim(),
       satuan: form.satuan.trim(),
       hargaModal: Number(form.hargaModal),

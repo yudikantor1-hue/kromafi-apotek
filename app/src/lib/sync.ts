@@ -8,12 +8,38 @@ import {
   outboxAll,
   outboxDelete,
   outboxPut,
+  recordsAll,
+  recordsReplaceAll,
+  STORE,
+  type StoreName,
 } from './idb';
-import type { Item, ItemPayload, OutboxOperation, SyncResult, VisibleItem } from '../types';
+import type {
+  Item,
+  ItemPayload,
+  OutboxOperation,
+  PharmacyPayload,
+  PharmacyProfile,
+  Reference,
+  ReferenceEntity,
+  ReferencePayload,
+  SyncResult,
+  VisibleItem,
+  VisiblePharmacy,
+  VisibleReference,
+} from '../types';
 
 export const DEVICE_ID_KEY = 'deviceId';
 export const LAST_SYNC_KEY = 'lastSyncAt';
 export const CURSOR_KEY = 'cursor';
+export const PHARMACY_KEY = 'pharmacyProfile';
+
+/** Which on-device store holds the confirmed rows of each reference list. */
+export const REFERENCE_STORES: Record<ReferenceEntity, StoreName> = {
+  cabinet: STORE.cabinets,
+  payment_method: STORE.paymentMethods,
+  doctor: STORE.doctors,
+  supplier: STORE.suppliers,
+};
 
 export async function getOrCreateDeviceId(): Promise<string> {
   const existing = await metaGet<string>(DEVICE_ID_KEY);
@@ -35,6 +61,7 @@ export function mergePending(confirmed: Item[], outbox: OutboxOperation[]): Visi
   const byId = new Map<string, VisibleItem>(confirmed.map((item) => [item.id, { ...item }]));
 
   for (const operation of outbox) {
+    if (operation.entity !== 'item') continue;
     // A stale cancelled row must not keep a record looking pending; new
     // cancellations are dropped from the outbox entirely (10.2.13).
     if (operation.status === 'cancelled') continue;
@@ -98,9 +125,133 @@ export async function queueItemSave(input: SaveItemInput): Promise<OutboxOperati
   return operation;
 }
 
+export interface SaveReferenceInput {
+  entity: ReferenceEntity;
+  recordId?: string;
+  confirmedVersion: number;
+  payload: ReferencePayload;
+  authorId: string;
+}
+
+export async function queueReferenceSave(input: SaveReferenceInput): Promise<OutboxOperation> {
+  const itemId = input.recordId ?? crypto.randomUUID();
+  const existing = (await outboxAll()).find((operation) => operation.itemId === itemId);
+
+  const operation: OutboxOperation = {
+    operationId: existing?.operationId ?? crypto.randomUUID(),
+    entity: input.entity,
+    action: existing?.action ?? (input.recordId ? 'update' : 'create'),
+    itemId,
+    authorId: existing?.authorId ?? input.authorId,
+    baseVersion: existing?.baseVersion ?? input.confirmedVersion,
+    deviceTime: new Date().toISOString(),
+    payload: input.payload,
+    queuedAt: existing?.queuedAt ?? new Date().toISOString(),
+    status: 'pending',
+  };
+
+  await outboxPut(operation);
+  return operation;
+}
+
+export async function queuePharmacySave(input: {
+  payload: PharmacyPayload;
+  confirmedVersion: number;
+  authorId: string;
+}): Promise<OutboxOperation> {
+  const itemId = 'apotek';
+  const existing = (await outboxAll()).find((operation) => operation.itemId === itemId);
+
+  const operation: OutboxOperation = {
+    operationId: existing?.operationId ?? crypto.randomUUID(),
+    entity: 'settings',
+    action: 'update',
+    itemId,
+    authorId: existing?.authorId ?? input.authorId,
+    baseVersion: existing?.baseVersion ?? input.confirmedVersion,
+    deviceTime: new Date().toISOString(),
+    payload: input.payload,
+    queuedAt: existing?.queuedAt ?? new Date().toISOString(),
+    status: 'pending',
+  };
+
+  await outboxPut(operation);
+  return operation;
+}
+
 export async function loadVisibleItems(): Promise<{ items: VisibleItem[]; outbox: OutboxOperation[] }> {
   const [confirmed, outbox] = await Promise.all([itemsAll(), outboxAll()]);
   return { items: mergePending(confirmed, outbox), outbox };
+}
+
+export async function loadVisibleReferences(entity: ReferenceEntity): Promise<VisibleReference[]> {
+  const [confirmed, operations] = await Promise.all([recordsAll<Reference>(REFERENCE_STORES[entity]), outboxAll()]);
+  const pending = operations.filter(
+    (operation): operation is Extract<OutboxOperation, { entity: ReferenceEntity }> =>
+      operation.entity === entity && operation.status !== 'cancelled',
+  );
+
+  const byId = new Map<string, VisibleReference>(confirmed.map((row) => [row.id, { ...row }]));
+
+  for (const operation of pending) {
+    if (operation.action === 'create') {
+      const payload = operation.payload as ReferencePayload;
+      byId.set(operation.itemId, {
+        id: operation.itemId,
+        ...payload,
+        version: 0,
+        updatedAt: operation.deviceTime,
+        serverUpdatedAt: operation.deviceTime,
+        pending: true,
+        pendingOperationId: operation.operationId,
+        pendingAction: 'create',
+      });
+      continue;
+    }
+    const base = byId.get(operation.itemId);
+    if (!base) continue;
+    byId.set(operation.itemId, {
+      ...base,
+      ...(operation.payload as ReferencePayload),
+      updatedAt: operation.deviceTime,
+      pending: true,
+      pendingOperationId: operation.operationId,
+      pendingAction: 'update',
+    });
+  }
+
+  return [...byId.values()].sort((left, right) =>
+    left.nama.localeCompare(right.nama, 'id', { sensitivity: 'base' }),
+  );
+}
+
+export async function loadVisiblePharmacy(): Promise<VisiblePharmacy | null> {
+  const [confirmed, operations] = await Promise.all([
+    metaGet<PharmacyProfile>(PHARMACY_KEY),
+    outboxAll(),
+  ]);
+  const pending = operations.find(
+    (operation): operation is Extract<OutboxOperation, { entity: 'settings' }> =>
+      operation.entity === 'settings' && operation.status !== 'cancelled',
+  );
+  if (!pending) return confirmed ? { ...confirmed } : null;
+
+  const base: PharmacyProfile = confirmed ?? {
+    id: 'apotek',
+    namaApotek: '',
+    alamat: '',
+    version: 0,
+    updatedAt: pending.deviceTime,
+    serverUpdatedAt: pending.deviceTime,
+  };
+
+  return {
+    ...base,
+    ...pending.payload,
+    updatedAt: pending.deviceTime,
+    pending: true,
+    pendingOperationId: pending.operationId,
+  };
 }
 
 export interface SyncSummary {
@@ -177,10 +328,19 @@ export async function syncNow(authorId: string): Promise<SyncSummary> {
     return summary;
   }
 
-  await itemsReplaceAll(snapshot.data?.items ?? []);
-  const syncTime = snapshot.data?.serverTime ?? new Date().toISOString();
+  const data = snapshot.data;
+  await itemsReplaceAll(data?.items ?? []);
+  await Promise.all([
+    recordsReplaceAll(REFERENCE_STORES.cabinet, data?.cabinets ?? []),
+    recordsReplaceAll(REFERENCE_STORES.payment_method, data?.paymentMethods ?? []),
+    recordsReplaceAll(REFERENCE_STORES.doctor, data?.doctors ?? []),
+    recordsReplaceAll(REFERENCE_STORES.supplier, data?.suppliers ?? []),
+  ]);
+  if (data?.settings) await metaSet(PHARMACY_KEY, data.settings);
+
+  const syncTime = data?.serverTime ?? new Date().toISOString();
   await metaSet(LAST_SYNC_KEY, syncTime);
-  await metaSet(CURSOR_KEY, cursor ?? snapshot.data?.cursor ?? syncTime);
+  await metaSet(CURSOR_KEY, cursor ?? data?.cursor ?? syncTime);
 
   summary.message = summary.held > 0 ? 'some_operations_held' : '';
   return summary;

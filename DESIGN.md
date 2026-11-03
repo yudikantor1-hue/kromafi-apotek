@@ -106,10 +106,17 @@ The initial production database should include the following core entities.
 - `staff`
 - fields: id, name, username, password_hash, role, status, created_at, updated_at
 
-### Items
+### Items and services
 
-- `items`
-- fields: id, code, name, unit, cabinet_id, stock, reorder_level, status, created_at, updated_at
+- `items`, implemented in [0001_init.sql](app/worker/migrations/0001_init.sql)
+- fields: id, nama, satuan, harga_modal, harga_jual, stok, lemari (cabinet name kept as text), status, version, device_updated_at, server_updated_at, created_at, updated_by
+- The client approved one catalogue for goods and services (10.2.16); migration `0007` adds `type` (`barang`/`jasa`) with a `CHECK`. A service stores an empty `satuan`, zero `harga_modal`, zero `stok`, and an empty `lemari`, and the name stays unique across both kinds.
+
+### Reference lists
+
+- `cabinets`, `payment_methods`, `doctors`, `suppliers`, implemented in [0006_reference_data.sql](app/worker/migrations/0006_reference_data.sql)
+- fields: id, nama (unique, case-insensitive), status, version, device_updated_at, server_updated_at, created_at, updated_by
+- Separate tables on purpose (10.2.17): a foreign key must never be able to point at the wrong kind of record, and each list will grow its own fields. They share one column pattern and one generic screen in the app.
 
 ### Batches and expiry
 
@@ -118,14 +125,14 @@ The initial production database should include the following core entities.
 
 ### Suppliers
 
-- `suppliers`
-- fields: id, name, status, created_at, updated_at
+- `suppliers`, implemented in [0006_reference_data.sql](app/worker/migrations/0006_reference_data.sql)
+- fields: id, nama, status, version, device_updated_at, server_updated_at, created_at, updated_by
+- Invoices will copy the supplier name by value, so renaming a distributor never rewrites an old document.
 
 ### Doctors and service records
 
-- `doctors`
-- `services`
-- reference data lists for sale and operational workflows
+- `doctors`, implemented in [0006_reference_data.sql](app/worker/migrations/0006_reference_data.sql): id, nama, status, version, device_updated_at, server_updated_at, created_at, updated_by
+- services are rows in `items` with `type = 'jasa'` (10.2.16), not a separate table
 
 ### Sales and sales lines
 
@@ -146,8 +153,9 @@ The initial production database should include the following core entities.
 
 ### Settings
 
-- `settings`
-- pharmacy profile, numbering rules, and operational defaults
+- `settings`, implemented in [0006_reference_data.sql](app/worker/migrations/0006_reference_data.sql)
+- one row with a fixed id (`apotek`), fields nama_apotek, alamat plus the shared sync columns; only an admin may write it
+- numbering rules and operational defaults will be added here when sales are built
 
 ## 7. Target workflow design
 

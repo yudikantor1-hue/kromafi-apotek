@@ -2,16 +2,17 @@
 
 ## Current application status
 
-The Barang first slice exists in `app/`: a React/Vite PWA, a Cloudflare Worker API, D1 migrations,
-and per-device IndexedDB storage. Verified by automated tests against the Worker handler and by a
-local browser run. The application has **not** been deployed to Cloudflare, so no remote D1 database
-is provisioned yet (tracked as P1 in [PLAN.md](PLAN.md)).
+The Barang slice and the five reference screens exist in `app/`: a React/Vite PWA, a Cloudflare
+Worker API, D1 migrations, and per-device IndexedDB storage. Verified by automated tests against the
+Worker handler. The application is deployed as a trial to the client's own Cloudflare account with
+migrations `0001`–`0005` applied remotely; migration `0006` (reference lists and pharmacy profile)
+is applied locally and still has to be applied to the remote database.
 
 ## Implemented application storage — Cloudflare D1 and per-device IndexedDB
 
 | Store | Purpose | Current schema | Source of truth |
 |---|---|---|---|
-| Cloudflare D1 (`DB`) | Shared database for confirmed records | `staff`, `sessions`, `login_attempts`, `items`, `audit_events`, `sync_operations` in [0001_init.sql](app/worker/migrations/0001_init.sql) | Authoritative source of truth |
+| Cloudflare D1 (`DB`) | Shared database for confirmed records | `staff`, `sessions`, `login_attempts`, `recovery_codes`, `items`, `cabinets`, `payment_methods`, `doctors`, `suppliers`, `settings`, `audit_events`, `sync_operations` | Authoritative source of truth |
 | Browser IndexedDB `kromafi-apotek` | Per-device confirmed-item cache, durable outbox, session, and offline credentials | Object stores `meta`, `items`, `outbox`, `credentials` in [idb.ts](app/src/lib/idb.ts) | Device-local provisional data only; not shared or authoritative until Worker confirmation |
 | PWA service-worker cache | App shell and static assets so a device can reopen the app offline | Caches `kromafi-shell-v1`, `kromafi-assets-v1` in [sw.js](app/public/sw.js) | Application assets only; never business records |
 
@@ -46,10 +47,46 @@ is provisioned yet (tracked as P1 in [PLAN.md](PLAN.md)).
 
 **`items`** — Barang master for the first slice.
 
-- Fields: `id` (primary key), `nama` (unique, case-insensitive), `satuan`, `harga_modal` (integer rupiah), `harga_jual` (integer rupiah), `stok` (real; negative allowed by business rule), `lemari`, `status` (`Aktif`/`Tidak aktif`), `version`, `device_updated_at` (winning device-reported time), `server_updated_at`, `created_at`, `updated_by`.
-- Keys: primary key `id`; unique index `idx_items_nama_unique`; index `idx_items_server_updated`.
+- Fields: `id` (primary key), `type` (`barang`/`jasa`, default `barang`), `nama` (unique, case-insensitive, across both kinds), `satuan`, `harga_modal` (integer rupiah), `harga_jual` (integer rupiah), `stok` (real; negative allowed by business rule), `lemari`, `status` (`Aktif`/`Tidak aktif`), `version`, `device_updated_at` (winning device-reported time), `server_updated_at`, `created_at`, `updated_by`.
+- Keys: primary key `id`; unique index `idx_items_nama_unique`; indexes `idx_items_server_updated` and `idx_items_type`.
+- A `jasa` row stores an empty `satuan`, zero `harga_modal`, zero `stok`, and an empty `lemari`; the Worker normalises those fields, so the goods form stays the only place that fills them. Goods and services share one catalogue and one name space (10.2.16), which is what the Excel import already requires.
 - Access and lifecycle: read through `/api/items` and `/api/sync/snapshot`; written only by the sync engine after validation. Records are deactivated, not deleted.
-- Source of truth: [0001_init.sql](app/worker/migrations/0001_init.sql), [sync.ts](app/worker/src/sync.ts).
+- Source of truth: [0001_init.sql](app/worker/migrations/0001_init.sql), [0007_item_type.sql](app/worker/migrations/0007_item_type.sql), [sync.ts](app/worker/src/sync.ts).
+
+**`cabinets`** — Lemari list used by the Barang form.
+
+- Fields: `id` (primary key), `nama` (unique, case-insensitive), `status` (`Aktif`/`Tidak aktif`), `version`, `device_updated_at`, `server_updated_at`, `created_at`, `updated_by`.
+- Keys: primary key `id`; unique index `idx_cabinets_nama_unique`; index `idx_cabinets_server_updated`.
+- Access and lifecycle: written only by the sync engine after validation, from the Lemari screen; records are deactivated, not deleted. `items.lemari` still stores the cabinet **name** as text, so renaming a cabinet never rewrites an existing item.
+- Source of truth: [0006_reference_data.sql](app/worker/migrations/0006_reference_data.sql), [reference.ts](app/worker/src/reference.ts).
+
+**`payment_methods`** — payment methods offered at the cashier.
+
+- Fields: `id` (primary key), `nama` (unique, case-insensitive), `status`, `version`, `device_updated_at`, `server_updated_at`, `created_at`, `updated_by`.
+- Keys: primary key `id`; unique index `idx_payment_methods_nama_unique`; index `idx_payment_methods_server_updated`.
+- Access and lifecycle: managed from the Metode pembayaran screen through the sync engine; deactivated, never deleted. A cash flag is not stored yet.
+- Source of truth: [0006_reference_data.sql](app/worker/migrations/0006_reference_data.sql), [reference.ts](app/worker/src/reference.ts).
+
+**`doctors`** — doctor list printed on receipts.
+
+- Fields: `id` (primary key), `nama` (unique, case-insensitive), `status`, `version`, `device_updated_at`, `server_updated_at`, `created_at`, `updated_by`.
+- Keys: primary key `id`; unique index `idx_doctors_nama_unique`; index `idx_doctors_server_updated`.
+- Access and lifecycle: managed from the Dokter screen; deactivated, never deleted. A sale will store the doctor name by value, so renaming never rewrites an old receipt.
+- Source of truth: [0006_reference_data.sql](app/worker/migrations/0006_reference_data.sql), [reference.ts](app/worker/src/reference.ts).
+
+**`suppliers`** — distributors used by supplier invoices.
+
+- Fields: `id` (primary key), `nama` (unique, case-insensitive), `status`, `version`, `device_updated_at`, `server_updated_at`, `created_at`, `updated_by`.
+- Keys: primary key `id`; unique index `idx_suppliers_nama_unique`; index `idx_suppliers_server_updated`.
+- Access and lifecycle: managed from the Distributor screen; deactivated, never deleted. The menu label is Indonesian ("Distributor") while the table keeps the design name `suppliers`.
+- Source of truth: [0006_reference_data.sql](app/worker/migrations/0006_reference_data.sql), [reference.ts](app/worker/src/reference.ts).
+
+**`settings`** — the pharmacy profile. Exactly one row.
+
+- Fields: `id` (primary key, always `apotek`), `nama_apotek`, `alamat`, `version`, `device_updated_at`, `server_updated_at`, `created_at`, `updated_by`.
+- Keys: primary key `id`; the migration inserts the row, so a second profile cannot be created.
+- Access and lifecycle: read by every signed-in device through the snapshot; written only by an admin from the Profil apotek screen, through the sync engine, and audited as `entity = 'settings'`. A staff request is rejected with `forbidden`.
+- Source of truth: [0006_reference_data.sql](app/worker/migrations/0006_reference_data.sql), [reference.ts](app/worker/src/reference.ts), [entities.ts](app/worker/src/entities.ts).
 
 **`audit_events`** — every accepted, superseded, conflicting, or rejected item edit, plus staff account changes.
 
@@ -67,10 +104,11 @@ is provisioned yet (tracked as P1 in [PLAN.md](PLAN.md)).
 - Access and lifecycle: a row is claimed before processing and completed with the stored response, so a retried operation is answered as `duplicate` instead of being applied twice. Rows are retained as the record of what each device sent.
 - Source of truth: [sync.ts](app/worker/src/sync.ts) and [0005_operation_author.sql](app/worker/migrations/0005_operation_author.sql).
 
-### Device storage (IndexedDB `kromafi-apotek`, version 1)
+### Device storage (IndexedDB `kromafi-apotek`, version 3)
 
-- **`meta`** — key/value: `deviceId`, current `session`, `lastSyncAt`, `cursor`, `offlineUsername`. Access: local only; cleared only by explicit device reset.
+- **`meta`** — key/value: `deviceId`, current `session`, `lastSyncAt`, `cursor`, `offlineUsername`, `pharmacyProfile` (the confirmed pharmacy profile). Access: local only; cleared only by explicit device reset.
 - **`items`** — last server-confirmed item snapshot, keyed by `id`. Never holds pending edits.
+- **`cabinets`, `paymentMethods`, `doctors`, `suppliers`** — last server-confirmed rows of each reference list, keyed by `id`. Pending edits stay in the outbox and are layered on top when a screen reads the list, so a confirmed row is never overwritten locally by work the centre has not answered.
 - **`outbox`** — queued operations keyed by `operationId`, index `itemId`. Fields: `action`, `itemId`, `authorId` (account that recorded the change), `baseVersion`, `deviceTime`, `payload`, `queuedAt`, `status` (`pending`/`held`/`cancelled`), `message`. Survives reloads; a held operation stays visible until it is corrected and re-sent or discarded, and a `cancelled` operation (work the centre has refused for good, such as work recorded by an account that was deactivated before it arrived) is deleted by the device without notice and never sent again, so it survives only in the server ledger (10.2.13).
 - **`credentials`** — one local credential per staff username: `username`, `staffId`, `name`, `role`, `hash`, `salt`, `iterations`, `provisionedAt`. Derived on the device from the password at online sign-in; the server hash is never copied to the device.
 
@@ -79,8 +117,8 @@ stock movements, batches, and reports are still planned.
 
 ## Prototype inventory — browser localStorage (approved baseline)
 
-The following keys belong to the client-approved UI prototype in `UI/`. Since the production
-application has not been built, no production app reads or writes these keys. Prototype credentials
+The following keys belong to the client-approved UI prototype in `UI/`. The production app reads
+and writes its own D1 and IndexedDB stores instead, so no production app reads or writes these keys. Prototype credentials
 or records are not production data; this storage documents the approved interaction model only.
 
 | Key | Purpose | Main fields | Written by |
@@ -120,7 +158,8 @@ requirements, and migrations in `PLAN.md`.
 - `sales`, `sale_lines` — cashier documents and their lines.
 - `invoices`, `invoice_lines` — supplier invoices with batch and expiry.
 - `stock_movements` — one row per movement, the single source for stock history.
-- `settings` — pharmacy profile and numbering.
+- `services` is not a separate table: goods and services share `items` with the `type` column added by migration `0007` (decision 10.2.16). The pharmacy profile is implemented as `settings`.
+- Future numbering rules (invoice and receipt numbers) will live in `settings` when sales are built.
 
 ## Table documentation format
 

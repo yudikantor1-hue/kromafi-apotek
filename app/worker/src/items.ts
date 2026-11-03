@@ -2,11 +2,17 @@ import type { SessionStaff } from './auth';
 import { can } from './permissions';
 import type { D1Database } from './env';
 import { apiError, json, nowIso } from './http';
+import { loadReferenceBundle } from './reference';
 
 export const ITEM_STATUSES = ['Aktif', 'Tidak aktif'] as const;
 export type ItemStatus = (typeof ITEM_STATUSES)[number];
 
+/** Goods and services share one catalogue (10.2.16). */
+export const ITEM_TYPES = ['barang', 'jasa'] as const;
+export type ItemType = (typeof ITEM_TYPES)[number];
+
 export interface ItemFields {
+  type: ItemType;
   nama: string;
   satuan: string;
   hargaModal: number;
@@ -25,6 +31,7 @@ export interface ItemWire extends ItemFields {
 
 export interface ItemRow {
   id: string;
+  type: ItemType | null;
   nama: string;
   satuan: string;
   harga_modal: number;
@@ -42,6 +49,8 @@ export interface ItemRow {
 export function rowToItem(row: ItemRow): ItemWire {
   return {
     id: row.id,
+    // Rows written before migration 0007 are goods.
+    type: row.type === 'jasa' ? 'jasa' : 'barang',
     nama: row.nama,
     satuan: row.satuan,
     hargaModal: row.harga_modal,
@@ -66,19 +75,38 @@ export function validateItemPayload(payload: unknown): ValidationResult {
   }
   const input = payload as Record<string, unknown>;
 
+  // A build that predates the type column sends goods only.
+  const type =
+    input.type === undefined || input.type === null
+      ? 'barang'
+      : ITEM_TYPES.includes(input.type as ItemType)
+        ? (input.type as ItemType)
+        : null;
+  if (!type) return { ok: false, message: 'invalid_type' };
+
   const nama = typeof input.nama === 'string' ? input.nama.trim() : '';
   if (!nama || nama.length > 100) return { ok: false, message: 'invalid_nama' };
 
-  const satuan = typeof input.satuan === 'string' ? input.satuan.trim() : '';
-  if (!satuan || satuan.length > 30) return { ok: false, message: 'invalid_satuan' };
+  // A service has no unit, purchase price, stock, or cabinet, so those fields
+  // are stored empty instead of trusted from the device.
+  const service = type === 'jasa';
 
-  if (!isMoney(input.hargaModal)) return { ok: false, message: 'invalid_harga_modal' };
+  const satuan = service ? '' : typeof input.satuan === 'string' ? input.satuan.trim() : '';
+  if (!service && !satuan) return { ok: false, message: 'invalid_satuan' };
+  if (satuan.length > 30) return { ok: false, message: 'invalid_satuan' };
+
+  const hargaModal = service ? 0 : input.hargaModal;
+  if (!isMoney(hargaModal)) return { ok: false, message: 'invalid_harga_modal' };
   if (!isMoney(input.hargaJual)) return { ok: false, message: 'invalid_harga_jual' };
 
-  const stok = typeof input.stok === 'number' && Number.isFinite(input.stok) ? input.stok : Number.NaN;
+  const stok = service
+    ? 0
+    : typeof input.stok === 'number' && Number.isFinite(input.stok)
+      ? input.stok
+      : Number.NaN;
   if (!Number.isFinite(stok) || Math.abs(stok) > 1_000_000_000) return { ok: false, message: 'invalid_stok' };
 
-  const lemari = typeof input.lemari === 'string' ? input.lemari.trim() : '';
+  const lemari = service ? '' : typeof input.lemari === 'string' ? input.lemari.trim() : '';
   if (lemari.length > 60) return { ok: false, message: 'invalid_lemari' };
 
   const status = ITEM_STATUSES.includes(input.status as ItemStatus) ? (input.status as ItemStatus) : null;
@@ -86,7 +114,7 @@ export function validateItemPayload(payload: unknown): ValidationResult {
 
   return {
     ok: true,
-    value: { nama, satuan, hargaModal: input.hargaModal, hargaJual: input.hargaJual, stok, lemari, status },
+    value: { type, nama, satuan, hargaModal, hargaJual: input.hargaJual, stok, lemari, status },
   };
 }
 
@@ -97,10 +125,21 @@ export async function loadItems(db: D1Database): Promise<ItemWire[]> {
   return results.map(rowToItem);
 }
 
+/**
+ * One snapshot carries every list a device needs offline: Barang, services,
+ * the reference screens, and the pharmacy profile.
+ */
 export async function handleSnapshot(_request: Request, db: D1Database, staff: SessionStaff): Promise<Response> {
   if (!can(staff, 'items:read')) return apiError(403, 'forbidden');
   const serverTime = nowIso();
-  return json({ items: await loadItems(db), cursor: serverTime, serverTime, staff });
+  const reference = await loadReferenceBundle(db);
+  return json({
+    items: await loadItems(db),
+    ...reference,
+    cursor: serverTime,
+    serverTime,
+    staff,
+  });
 }
 
 export async function handleItemList(request: Request, db: D1Database, staff: SessionStaff): Promise<Response> {
@@ -108,8 +147,10 @@ export async function handleItemList(request: Request, db: D1Database, staff: Se
   const url = new URL(request.url);
   const query = (url.searchParams.get('q') ?? '').trim().toLowerCase();
   const status = url.searchParams.get('status') ?? 'semua';
+  const type = url.searchParams.get('type') ?? 'semua';
 
   let items = await loadItems(db);
+  if (type === 'barang' || type === 'jasa') items = items.filter((item) => item.type === type);
   if (status === 'aktif') items = items.filter((item) => item.status === 'Aktif');
   if (status === 'tidak aktif') items = items.filter((item) => item.status === 'Tidak aktif');
   if (query) items = items.filter((item) => item.nama.toLowerCase().includes(query));

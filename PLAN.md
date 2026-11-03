@@ -93,7 +93,7 @@ Goal: turn the UI-derived feature inventory into backend contracts, business rul
 
 ### 2.10 Exit gate
 
-- **2.10.1** Every included UI workflow has client-approved server behavior, data rules, permissions, and measurable acceptance criteria. — **50%**: all items marked **Before first code** in phase 10 are answered or resolved (10.1), and the first slice with its acceptance criteria and todo list is approved (phase 11). The other 17 menus still need the same treatment before their own code starts.
+- **2.10.1** Every included UI workflow has client-approved server behavior, data rules, permissions, and measurable acceptance criteria. — **50%**: all items marked **Before first code** in phase 10 are answered or resolved (10.1), and the first slice with its acceptance criteria and todo list is approved (phase 11). The other 10 menus still need the same treatment before their own code starts.
 
 ---
 
@@ -103,7 +103,7 @@ Goal: create the production application foundation and secure access before enab
 
 ### 3.1 Application shell
 
-- **3.1.1** Create the production app in `app/` using the approved target architecture and reproduce the approved UI shell without modifying `UI/`. — **100%** (shell, login, PIN provisioning, drawer, and the Barang screen are implemented; the other 17 menus are listed but disabled until their own phase)
+- **3.1.1** Create the production app in `app/` using the approved target architecture and reproduce the approved UI shell without modifying `UI/`. — **100%** (shell, login, PIN provisioning, drawer, and the Barang screen are implemented; the other 10 menus are listed but disabled until their own phase)
 
 ### 3.2 Worker, D1, and deployment configuration
 
@@ -123,7 +123,7 @@ Goal: create the production application foundation and secure access before enab
 
 ### 3.6 Tests
 
-- **3.6.1** Add tests for session expiry, inactive accounts, role restrictions, and API error responses. — **100%** (59 automated tests pass across the Worker and offline suites)
+- **3.6.1** Add tests for session expiry, inactive accounts, role restrictions, and API error responses. — **100%** (68 automated tests pass across the Worker and offline suites)
 
 ### 3.7 Exit gate
 
@@ -135,17 +135,17 @@ Goal: create the production application foundation and secure access before enab
 
 - **3.8.1** Replace the initial-password field with a temporary one-time PIN that the new staff member uses to sign in and set their own password. — **100%** (implemented: 6 digits, 24 hours, single use, PBKDF2-hashed, shown once with a print button; signing in with it opens only the password screen, and every other API route answers 403 password_change_required until a password of at least 8 characters is set)
 - **3.8.2** Allow any number of admin accounts, as decided in 10.2.9, while keeping the guard that the last active admin cannot be removed. — **100%** (the app already accepts multiple admins and refuses to remove the last active one)
-- **3.8.3** Cover the PIN flow with tests: only six digits are accepted, the PIN works exactly once, it is refused after 24 hours, it is refused for a deactivated account, a new PIN invalidates the old one, and the forced password screen blocks the app until a password is set. — **100%** (six tests in tests/worker.test.ts, 59 tests in total; also verified end to end against the local API)
+- **3.8.3** Cover the PIN flow with tests: only six digits are accepted, the PIN works exactly once, it is refused after 24 hours, it is refused for a deactivated account, a new PIN invalidates the old one, and the forced password screen blocks the app until a password is set. — **100%** (six tests in tests/worker.test.ts, 68 tests in total; also verified end to end against the local API)
 
 ---
 
-## 4. Master data, purchasing, and sales — 0%
+## 4. Master data, purchasing, and sales — 25%
 
 Goal: deliver the approved reference-data, goods-receipt, and cashier workflows with persisted data.
 
 ### 4.1 Master data
 
-- **4.1.1** Build item, supplier, doctor, service, payment-method, cabinet, and pharmacy-profile management. — **0%** (items exist inside the Barang slice; the other reference data does not)
+- **4.1.1** Build item, supplier, doctor, service, payment-method, cabinet, and pharmacy-profile management. — **100%** (items, Jasa, the four reference lists, and the pharmacy profile are implemented and tested; goods and services share one catalogue as decided in 10.2.16)
 - **4.1.2** Provide a downloadable blank .xlsx template for items and services with exactly four columns, whose header names are fixed: `type`, `nama`, `harga_modal`, `harga_jual`. The template carries a few example rows marked as examples so the client knows what to type. — **0%** (decided 2 November 2026, 10.2.6 and 10.2.6a)
 - **4.1.3** Import the filled workbook: validate every row first, then create the goods and services. A name that already exists rejects the whole file and lists the offending row numbers; numbers accept `1500`, `1.500`, and `Rp 1.500`; files are capped at 5,000 rows and 2 MB, so nothing is ever applied half-way. — **0%**
 - **4.1.4** Test the import: valid rows, a service with an empty purchase price, an unknown type, a duplicate name, malformed and formatted numbers (`Rp 1.500`), a file over 5,000 rows, and an empty file. — **0%**
@@ -235,7 +235,7 @@ Goal: ensure the app remains operational and recoverable in real-world condition
 
 ### 7.1 Offline storage
 
-- **7.1.1** Cache the app shell and required reference data; store all approved offline workflows and a durable outbox in per-device IndexedDB. — **50%** (service-worker shell cache and a durable outbox are verified; only the Barang workflow exists so far)
+- **7.1.1** Cache the app shell and required reference data; store all approved offline workflows and a durable outbox in per-device IndexedDB. — **50%** (service-worker shell cache and a durable outbox are verified; Barang and the five reference screens work offline, while purchasing, sales, and inventory workflows do not exist yet)
 
 ### 7.2 Visible sync states
 
@@ -499,6 +499,16 @@ These are not blockers for an unrelated first slice. Resolve each before impleme
   - Owner: client. State: **Open**.
   - Recommendation, in this order: (1) the eight one-time recovery codes issued at bootstrap, printed and stored safely, work from the login screen's *Lupa password?*; (2) a second active admin on every installation, so each can reset the other from Petugas; (3) the break-glass command `node scripts/bootstrap-admin.mjs --remote --reset --username <admin>`, which needs a terminal and the Cloudflare account credentials, so possession of the deployment is the proof of ownership. A shipped app cannot safely offer "reset any admin without a credential", and no email service is available (P5).
 
+- **10.2.16 — Should services (Jasa) share one catalogue table with goods (Barang)?**
+  - Why: the agreed Excel import (10.2.6) already treats goods and services as one list with a `type` column, and 4.1.1 builds both screens from one catalogue.
+  - Owner: client. State: **Answered** (3 November 2026).
+  - Recorded answer: **yes, one catalogue.** A service becomes a row in `items` with `type = 'jasa'`, an empty or zero `harga_modal`, and no unit, stock, or cabinet; a name stays unique across both kinds, exactly as the import requires. Implemented in migration `0007_item_type.sql`, `worker/src/items.ts`, and `src/components/JasaPage.tsx`: `items.type` is `barang` or `jasa` with a `CHECK` constraint, a service stores an empty unit, zero purchase price, zero stock, and an empty cabinet, and the name stays unique across both kinds.
+
+- **10.2.17 — Should the doctor, cabinet, payment-method, and supplier lists share one generic table?**
+  - Why: the four lists carry the same two visible fields, so one table with an `entity_type` column looks simpler.
+  - Owner: client. State: **Answered** (3 November 2026).
+  - Recorded answer: **no, keep separate tables** (`doctors`, `cabinets`, `payment_methods`, `suppliers`). A typed foreign key must not be able to point at the wrong kind of record, each list will need its own fields (contact details, a cash flag, a physical location), and one shared table would weaken per-list name uniqueness. They share one column pattern and one generic screen in the app instead.
+
 ### 10.3 Decisions already settled — do not ask again
 
 - **10.3.1** The product is a PWA for one pharmacy, used by multiple staff on multiple devices.
@@ -536,7 +546,7 @@ Goal: prove the approved PWA + Cloudflare architecture with one complete, low-ri
 - **11.3.4** Two-device edits preserve both audit events in chronological history; the latest valid device-reported timestamp determines the active value, and clock uncertainty is surfaced for review. — **Verified**
 - **11.3.5** Each operation records its author, and the server compares that author's deactivation time with the operation's device time when the operation is processed: later work is cancelled even when an active account sends the queue, earlier work is applied and noted, and in-flight ledger rows are closed on deactivation. Cancelled or held operations stay visible and auditable. — **Verified**
 - **11.3.6** A new device can initialize Barang data from Cloudflare sync or the encrypted export package; import changes only the local cache and is blocked when the target has pending work. — **Verified**
-- **11.3.7** Automated tests cover online persistence, offline reload, two-device sync, idempotency, author-based deactivation, clock conflicts, import validation, and permissions. — **Verified** (59 tests)
+- **11.3.7** Automated tests cover online persistence, offline reload, two-device sync, idempotency, author-based deactivation, clock conflicts, import validation, and permissions. — **Verified** (68 tests)
 
 ### 11.4 Implementation todo list
 
@@ -564,15 +574,17 @@ Goal: prove the approved PWA + Cloudflare architecture with one complete, low-ri
 ### 12.1 Verified current state (3 November 2026)
 
 - **12.1.1** `UI/` contains the client-approved prototype and workflow baseline for all 18 menus, including flows and browser-local workflow simulation. It is not the production source.
-- **12.1.2** `app/` contains the production application for the Barang first slice: React/Vite PWA, Worker API, D1 migrations, offline outbox, idempotent sync, conflict history, staff administration, recovery codes, and encrypted export/import.
-- **12.1.3** Automated checks pass: `npm run typecheck` is clean, `npm test` runs 59 tests across the Worker and offline suites, and `npm run build` produces the deployable PWA.
+- **12.1.2** `app/` contains the production application for the Barang and reference-data slices: React/Vite PWA, Worker API, D1 migrations, offline outbox, idempotent sync, conflict history, staff administration, recovery codes, and encrypted export/import.
+- **12.1.3** Automated checks pass: `npm run typecheck` is clean, `npm test` runs 68 tests across the Worker and offline suites, and `npm run build` produces the deployable PWA.
 - **12.1.4** The app is deployed as a trial to the client's own Cloudflare account at https://kromafi-apotek.kromafi.workers.dev, with D1 `kromafi-apotek` (`db477559-d51d-40f3-a822-d1cb2c21904e`, region APAC) migrated and a first admin (`admin`) created by `npm run staff:bootstrap -- --remote --username admin`. Staff sign in with a username, not an email.
 - **12.1.5** Workers compatibility is verified on the real `workerd` runtime: `wrangler dev` runs against a local D1 database, and health, sign-in, `401` handling, idempotent sync, and browser reads behave as designed. The earlier `write EOF` fault was an environment defect — a missing Visual C++ 2015–2022 Redistributable (x64) left `workerd.exe` unable to load its UCRT libraries — and installing it fixed the machine.
 - **12.1.6** `workerd` caps PBKDF2 at 100,000 iterations, so the deployed Worker rejected the earlier 210,000-iteration hashes with `500` on every sign-in while local runs stayed green. The setting is now 100,000 — the runtime maximum — and sign-in on the deployed Worker returned `200`. Because older credentials cannot be re-derived, `npm run staff:bootstrap -- --reset` replaces a password and ends its sessions.
 - **12.1.7** A full local backup drill passed: export, restore into an empty database, identical row counts in all seven tables, and the restored database accepted a sign-in and served the same record. Cloudflare Time Travel covers the last 7 days; the export is the portable copy.
-- **12.1.8** Known limits: only the Barang screen is implemented, the other 17 prototype menus are listed but disabled; the custom domain and second admin are open (10.2.1); backup schedule and retention are open (10.2.2); daily close has no prototype workflow (10.2.4).
+- **12.1.8** Known limits: seven screens are implemented (Barang, Petugas, Lemari, Metode pembayaran, Dokter, Distributor, Profil apotek) and the other 10 prototype menus are listed but disabled; the custom domain and second admin are open (10.2.1); backup schedule and retention are open (10.2.2); daily close has no prototype workflow (10.2.4).
 - **12.1.9** Selling model confirmed by the client: each buyer uses **their own** Cloudflare account, so one installation means one account, one Worker, one database, and one pharmacy's data. The install sequence in [app/README.md](app/README.md) is the per-buyer procedure.
 - **12.1.10** Migrations `0001`–`0005` are applied on the remote D1 database, and Worker version `010f3880-963d-49cc-88fa-c3c25da82996` (commit `3a8acae`) is live. Offline work is attributed to the account that recorded it and cancelled at processing time when that account was already deactivated (10.2.12); the device now drops such work silently (10.2.13). A password reset is offered and accepted only for an account that is Aktif (10.2.14). Live checks after that deploy: `/api/health` `200`, `POST /api/staff/:id/password` without a session `401`, and the new Petugas text present in the served bundle.
+
+- **12.1.11** The Jasa, Lemari, Metode pembayaran, Dokter, Distributor, and Profil apotek screens are implemented on the same offline-sync engine as Barang. Migration `0006` adds `cabinets`, `payment_methods`, `doctors`, `suppliers`, and `settings`; migration `0007` adds `items.type`, so goods and services share one catalogue and one name space (10.2.16). Migrations `0006` and `0007` are applied to the local database only; they are not yet on the remote D1 database.
 
 ### 12.2 Target outcome for version 1.0
 
@@ -732,7 +744,7 @@ The approved prototype is the default baseline for version 1.0 screen scope and 
 | 1. Product definition and delivery gates | 25% |
 | 2. Backend feature rules and data model | 25% |
 | 3. Application foundation and access control | 100% |
-| 4. Master data, purchasing, and sales | 0% |
+| 4. Master data, purchasing, and sales | 25% |
 | 5. Inventory control and expiry | 0% |
 | 6. Reports and operational visibility | 0% |
 | 7. Reliability and backup readiness | 25% |
@@ -743,9 +755,10 @@ The approved prototype is the default baseline for version 1.0 screen scope and 
 ### 16.1 Notes on the summary
 
 - **16.1.1** Phase 1 stays at 25% until the full acceptance checklist exists (1.2.2, 1.3.1).
-- **16.1.2** Phase 2 stays at 25% until the other 17 menus have approved backend rules (2.10.1).
+- **16.1.2** Phase 2 stays at 25% until the other 10 menus have approved backend rules (2.10.1).
 - **16.1.3** Phase 3 is 100%: foundation, database, authentication (password and temporary PIN), authorization, audit limits, tests, and the Barang screen are complete and verified.
 - **16.1.4** Phase 7 is 25% because local backup and offline sync work but cloud restore and two-device testing are pending.
 - **16.1.5** Phase 9 is 25% because a trial deployment exists but the agreed domain, data onboarding, training, and handover do not.
 - **16.1.6** The verified facts behind these values are listed in 12.1; B15, B16, and B17 are approved and recorded in 10.1.17–10.1.19.
-- **16.1.7** Every item in 10.1 and 10.2 has a recorded answer as of 2 November 2026 and none is still **Open**. One item, 10.2.1, stays **Partly answered** until the client explicitly confirms that the installation belongs to their own Cloudflare account; the trial already runs there. The remaining work is implementation, not decisions.
+- **16.1.7** Every item in 10.1 and 10.2 has a recorded answer except 10.2.15 (single-admin password recovery), which stays **Open** for the client. One item, 10.2.1, stays **Partly answered** until the client explicitly confirms that the installation belongs to their own Cloudflare account; the trial already runs there. The rest of the remaining work is implementation.
+- **16.1.8** Phase 4 is 25% because all reference lists and the pharmacy profile are implemented while purchasing, sales, and the Jasa screen are not.

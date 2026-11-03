@@ -1,14 +1,29 @@
 import type { Item, LocalCredential, OutboxOperation } from '../types';
 
 const DB_NAME = 'kromafi-apotek';
-const DB_VERSION = 2;
+const DB_VERSION = 3;
 
 export const STORE = {
   meta: 'meta',
   items: 'items',
   outbox: 'outbox',
   credentials: 'credentials',
+  cabinets: 'cabinets',
+  paymentMethods: 'paymentMethods',
+  doctors: 'doctors',
+  suppliers: 'suppliers',
 } as const;
+
+export type StoreName = (typeof STORE)[keyof typeof STORE];
+
+/** Reference stores hold server-confirmed rows only; pending edits stay in the outbox. */
+const RECORD_STORES: StoreName[] = [
+  STORE.items,
+  STORE.cabinets,
+  STORE.paymentMethods,
+  STORE.doctors,
+  STORE.suppliers,
+];
 
 let dbPromise: Promise<IDBDatabase> | null = null;
 
@@ -20,7 +35,9 @@ export function openDatabase(): Promise<IDBDatabase> {
     request.onupgradeneeded = (event) => {
       const db = request.result;
       if (!db.objectStoreNames.contains(STORE.meta)) db.createObjectStore(STORE.meta);
-      if (!db.objectStoreNames.contains(STORE.items)) db.createObjectStore(STORE.items, { keyPath: 'id' });
+      for (const name of RECORD_STORES) {
+        if (!db.objectStoreNames.contains(name)) db.createObjectStore(name, { keyPath: 'id' });
+      }
       if (!db.objectStoreNames.contains(STORE.outbox)) {
         const outbox = db.createObjectStore(STORE.outbox, { keyPath: 'operationId' });
         outbox.createIndex('itemId', 'itemId', { unique: false });
@@ -92,21 +109,29 @@ export async function metaDelete(key: string): Promise<void> {
   await runTransaction<void>(STORE.meta, 'readwrite', (store) => store.delete(key));
 }
 
+export async function recordsAll<T>(storeName: StoreName): Promise<T[]> {
+  const rows = await runTransaction<T[]>(storeName, 'readonly', (store) => store.getAll());
+  return rows ?? [];
+}
+
+export async function recordsReplaceAll<T>(storeName: StoreName, rows: T[]): Promise<void> {
+  const db = await openDatabase();
+  await new Promise<void>((resolve, reject) => {
+    const transaction = db.transaction(storeName, 'readwrite');
+    const store = transaction.objectStore(storeName);
+    store.clear();
+    for (const row of rows) store.put(row);
+    transaction.oncomplete = () => resolve();
+    transaction.onerror = () => reject(transaction.error ?? new Error('records_write_failed'));
+  });
+}
+
 export async function itemsAll(): Promise<Item[]> {
-  const items = await runTransaction<Item[]>(STORE.items, 'readonly', (store) => store.getAll());
-  return items ?? [];
+  return recordsAll<Item>(STORE.items);
 }
 
 export async function itemsReplaceAll(items: Item[]): Promise<void> {
-  const db = await openDatabase();
-  await new Promise<void>((resolve, reject) => {
-    const transaction = db.transaction(STORE.items, 'readwrite');
-    const store = transaction.objectStore(STORE.items);
-    store.clear();
-    for (const item of items) store.put(item);
-    transaction.oncomplete = () => resolve();
-    transaction.onerror = () => reject(transaction.error ?? new Error('items_write_failed'));
-  });
+  await recordsReplaceAll(STORE.items, items);
 }
 
 export async function itemsUpsertMany(items: Item[]): Promise<void> {
@@ -151,7 +176,7 @@ export async function credentialPut(credential: LocalCredential): Promise<void> 
 export async function clearDeviceData(): Promise<void> {
   const db = await openDatabase();
   await new Promise<void>((resolve, reject) => {
-    const stores = [STORE.meta, STORE.items, STORE.outbox];
+    const stores = [STORE.meta, STORE.outbox, ...RECORD_STORES];
     const transaction = db.transaction(stores, 'readwrite');
     for (const name of stores) transaction.objectStore(name).clear();
     transaction.oncomplete = () => resolve();

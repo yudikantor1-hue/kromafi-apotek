@@ -851,3 +851,151 @@ describe('recovery codes', () => {
     expect(result.status).toBe(401);
   });
 });
+
+describe('reference data', () => {
+  function referenceOp(
+    entity: string,
+    payload: Record<string, unknown> = {},
+    overrides: Record<string, unknown> = {},
+  ) {
+    return {
+      operationId: crypto.randomUUID(),
+      entity,
+      action: 'create',
+      itemId: crypto.randomUUID(),
+      authorId: 'staff-admin',
+      baseVersion: 0,
+      deviceTime: iso(),
+      payload: { nama: 'Lemari depan', status: 'Aktif', ...payload },
+      ...overrides,
+    };
+  }
+
+  it('creates every reference list and returns it in the snapshot', async () => {
+    const admin = await login('admin');
+    const operations = [
+      referenceOp('cabinet', { nama: 'Lemari depan' }),
+      referenceOp('payment_method', { nama: 'Tunai' }),
+      referenceOp('doctor', { nama: 'dr. Andi' }),
+      referenceOp('supplier', { nama: 'PT Sehat' }),
+    ];
+
+    const pushed = await push(admin.cookie, 'device-1', operations);
+    expect(pushed.body.results.map((result: { status: string }) => result.status)).toEqual([
+      'applied',
+      'applied',
+      'applied',
+      'applied',
+    ]);
+
+    const snapshot = await call('/api/sync/snapshot', { headers: { cookie: admin.cookie } });
+    const body = await snapshot.json();
+    expect(body.cabinets).toMatchObject([{ nama: 'Lemari depan', status: 'Aktif', version: 1 }]);
+    expect(body.paymentMethods[0]).toMatchObject({ nama: 'Tunai' });
+    expect(body.doctors[0]).toMatchObject({ nama: 'dr. Andi' });
+    expect(body.suppliers[0]).toMatchObject({ nama: 'PT Sehat' });
+  });
+
+  it('refuses a duplicate name in one list but allows the same name in another', async () => {
+    const admin = await login('admin');
+    await push(admin.cookie, 'device-1', [referenceOp('doctor', { nama: 'dr. Andi' })]);
+
+    const duplicate = await push(admin.cookie, 'device-1', [referenceOp('doctor', { nama: 'DR. ANDI' })]);
+    expect(duplicate.body.results[0]).toMatchObject({ status: 'rejected', message: 'duplicate_name' });
+
+    const otherList = await push(admin.cookie, 'device-1', [referenceOp('supplier', { nama: 'dr. Andi' })]);
+    expect(otherList.body.results[0].status).toBe('applied');
+  });
+
+  it('deactivates a cabinet without deleting it', async () => {
+    const admin = await login('admin');
+    const created = referenceOp('cabinet', { nama: 'Lemari belakang' });
+    await push(admin.cookie, 'device-1', [created]);
+
+    const update = {
+      ...created,
+      operationId: crypto.randomUUID(),
+      action: 'update',
+      baseVersion: 1,
+      deviceTime: iso(1000),
+      payload: { nama: 'Lemari belakang', status: 'Tidak aktif' },
+    };
+    const pushed = await push(admin.cookie, 'device-1', [update]);
+    expect(pushed.body.results[0]).toMatchObject({ status: 'applied', version: 2 });
+    expect(db.raw('SELECT status FROM cabinets')[0]).toMatchObject({ status: 'Tidak aktif' });
+  });
+
+  it('lets only an admin save the pharmacy profile', async () => {
+    const settingsOp = (authorId: string) => ({
+      operationId: crypto.randomUUID(),
+      entity: 'settings',
+      action: 'update',
+      itemId: 'apotek',
+      authorId,
+      baseVersion: 1,
+      deviceTime: iso(),
+      payload: { namaApotek: 'Apotek Sehat', alamat: 'Jl. Mawar 1' },
+    });
+
+    const staff = await login('user');
+    const refused = await push(staff.cookie, 'device-1', [settingsOp('staff-budi')]);
+    expect(refused.body.results[0]).toMatchObject({ status: 'rejected', message: 'forbidden' });
+
+    const admin = await login('admin');
+    const applied = await push(admin.cookie, 'device-1', [settingsOp('staff-admin')]);
+    expect(applied.body.results[0].status).toBe('applied');
+
+    const snapshot = await call('/api/sync/snapshot', { headers: { cookie: admin.cookie } });
+    expect((await snapshot.json()).settings).toMatchObject({
+      namaApotek: 'Apotek Sehat',
+      alamat: 'Jl. Mawar 1',
+      version: 2,
+    });
+  });
+});
+
+describe('goods and services', () => {
+  it('stores a service without unit, purchase price, stock, or cabinet', async () => {
+    const admin = await login('admin');
+    const operation = createOp({
+      payload: basePayload({
+        type: 'jasa',
+        nama: 'Suntik vitamin',
+        satuan: 'Tablet',
+        hargaModal: 5000,
+        hargaJual: 15000,
+        stok: 7,
+        lemari: 'Lemari depan',
+      }),
+    });
+
+    const pushed = await push(admin.cookie, 'device-1', [operation]);
+    expect(pushed.body.results[0]).toMatchObject({
+      status: 'applied',
+      item: { type: 'jasa', satuan: '', hargaModal: 0, stok: 0, lemari: '', hargaJual: 15000 },
+    });
+
+    const snapshot = await call('/api/sync/snapshot', { headers: { cookie: admin.cookie } });
+    expect((await snapshot.json()).items[0]).toMatchObject({ type: 'jasa', nama: 'Suntik vitamin' });
+  });
+
+  it('still requires a unit for goods and rejects an unknown type', async () => {
+    const admin = await login('admin');
+
+    const withoutUnit = await push(admin.cookie, 'device-1', [createOp({ payload: basePayload({ satuan: '' }) })]);
+    expect(withoutUnit.body.results[0]).toMatchObject({ status: 'rejected', message: 'validation' });
+
+    const unknownType = await push(admin.cookie, 'device-1', [createOp({ payload: basePayload({ type: 'paket' }) })]);
+    expect(unknownType.body.results[0]).toMatchObject({ status: 'rejected', message: 'validation' });
+  });
+
+  it('keeps one name space across goods and services', async () => {
+    const admin = await login('admin');
+    await push(admin.cookie, 'device-1', [createOp({ payload: basePayload({ nama: 'Vitamin C' }) })]);
+
+    const duplicate = await push(admin.cookie, 'device-1', [
+      createOp({ payload: basePayload({ type: 'jasa', nama: 'vitamin c', hargaJual: 10000 }) }),
+    ]);
+    expect(duplicate.body.results[0]).toMatchObject({ status: 'rejected', message: 'duplicate_name' });
+  });
+});

@@ -1,13 +1,8 @@
 import type { SessionStaff } from './auth';
 import type { D1Database } from './env';
+import { ADAPTERS, type EntityAdapter, type SyncEntity } from './entities';
 import { apiError, isIsoTimestamp, json, nowIso, readJson } from './http';
-import {
-  type ItemFields,
-  type ItemRow,
-  type ItemWire,
-  rowToItem,
-  validateItemPayload,
-} from './items';
+import type { ItemWire } from './items';
 
 const CLOCK_SKEW_MS = 5 * 60 * 1000;
 const MAX_BATCH = 50;
@@ -19,7 +14,10 @@ export interface SyncResult {
   itemId: string;
   status: SyncStatus;
   message: string;
+  /** Set for item operations only, so existing clients keep their shape. */
   item?: ItemWire;
+  /** The accepted record for any entity; `item` mirrors it for Barang. */
+  record?: unknown;
   version?: number;
 }
 
@@ -31,11 +29,13 @@ interface OperationInput {
   baseVersion: number;
   deviceTime: string;
   payload: unknown;
+  adapter: EntityAdapter;
 }
 
 /** The account that recorded the work, read fresh when the work is processed. */
 interface OperationAuthor {
   id: string;
+  role: 'admin' | 'staf';
   status: string;
   deactivated_at: string | null;
 }
@@ -45,6 +45,9 @@ interface StoredOperation {
   response_json: string;
 }
 
+const isEntity = (value: unknown): value is SyncEntity =>
+  typeof value === 'string' && Object.prototype.hasOwnProperty.call(ADAPTERS, value);
+
 function parseOperation(raw: unknown): OperationInput | { error: string } {
   if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return { error: 'invalid_operation' };
   const input = raw as Record<string, unknown>;
@@ -52,15 +55,21 @@ function parseOperation(raw: unknown): OperationInput | { error: string } {
   const operationId = typeof input.operationId === 'string' ? input.operationId.trim() : '';
   if (operationId.length < 8 || operationId.length > 120) return { error: 'invalid_operation_id' };
 
+  if (!isEntity(input.entity)) return { error: 'unsupported_entity' };
+  const adapter = ADAPTERS[input.entity];
+
+  // The pharmacy profile is a single row with a fixed id; every other record
+  // carries a device-generated identifier.
+  const minIdLength = adapter.entity === 'settings' ? 1 : 8;
   const itemId = typeof input.itemId === 'string' ? input.itemId.trim() : '';
-  if (itemId.length < 8 || itemId.length > 120) return { error: 'invalid_item_id' };
+  if (itemId.length < minIdLength || itemId.length > 120) return { error: 'invalid_item_id' };
+  if (adapter.entity === 'settings' && itemId !== 'apotek') return { error: 'invalid_item_id' };
 
   // A device records who made the change while it is offline, so the server can
   // judge that account even when someone else sends the queue later (10.2.12).
   const authorId = typeof input.authorId === 'string' ? input.authorId.trim() : '';
   if (authorId.length < 8 || authorId.length > 120) return { error: 'invalid_author_id' };
 
-  if (input.entity !== 'item') return { error: 'unsupported_entity' };
   if (input.action !== 'create' && input.action !== 'update') return { error: 'unsupported_action' };
 
   const baseVersion = typeof input.baseVersion === 'number' && Number.isInteger(input.baseVersion) && input.baseVersion >= 0
@@ -78,6 +87,7 @@ function parseOperation(raw: unknown): OperationInput | { error: string } {
     baseVersion,
     deviceTime: input.deviceTime,
     payload: input.payload,
+    adapter,
   };
 }
 
@@ -94,13 +104,14 @@ function withPusher(note: string, authorId: string, pushedById: string): string 
 
 async function findAuthor(db: D1Database, id: string): Promise<OperationAuthor | null> {
   return db
-    .prepare('SELECT id, status, deactivated_at FROM staff WHERE id = ?')
+    .prepare('SELECT id, role, status, deactivated_at FROM staff WHERE id = ?')
     .bind(id)
     .first<OperationAuthor>();
 }
 
 async function recordAudit(
   db: D1Database,
+  entity: SyncEntity,
   staffId: string,
   deviceId: string,
   operation: OperationInput,
@@ -116,10 +127,11 @@ async function recordAudit(
       `INSERT INTO audit_events
          (id, entity, entity_id, action, outcome, staff_id, device_id, operation_id, device_time,
           server_time, base_version, resulting_version, before_json, after_json, note)
-       VALUES (?, 'item', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     )
     .bind(
       crypto.randomUUID(),
+      entity,
       operation.itemId,
       operation.action,
       outcome,
@@ -137,53 +149,70 @@ async function recordAudit(
     .run();
 }
 
+function resultFor(
+  adapter: EntityAdapter,
+  operation: OperationInput,
+  fields: Record<string, unknown>,
+  version: number,
+  serverTime: string,
+  message: string,
+): SyncResult {
+  const record = adapter.wire(operation.itemId, fields, version, operation.deviceTime, serverTime);
+  return {
+    operationId: operation.operationId,
+    itemId: operation.itemId,
+    status: 'applied',
+    message,
+    item: adapter.entity === 'item' ? (record as ItemWire) : undefined,
+    record,
+    version,
+  };
+}
+
 async function applyFields(
   db: D1Database,
-  authorId: string,
+  author: OperationAuthor,
   pushedById: string,
   deviceId: string,
   operation: OperationInput,
-  fields: ItemFields,
-  existing: ItemRow,
+  fields: Record<string, unknown>,
+  existing: Record<string, unknown>,
   serverTime: string,
   note: string,
   auditSuperseded: boolean,
 ): Promise<SyncResult> {
-  const nextVersion = existing.version + 1;
+  const adapter = operation.adapter;
+  const nextVersion = Number(existing.version) + 1;
 
+  const assignments = adapter.columns.map((column) => `${column} = ?`).join(', ');
   try {
     await db
       .prepare(
-        `UPDATE items SET nama = ?, satuan = ?, harga_modal = ?, harga_jual = ?, stok = ?, lemari = ?,
-                status = ?, version = ?, device_updated_at = ?, server_updated_at = ?, updated_by = ?
+        `UPDATE ${adapter.table} SET ${assignments}, version = ?, device_updated_at = ?,
+                server_updated_at = ?, updated_by = ?
           WHERE id = ?`,
       )
       .bind(
-        fields.nama,
-        fields.satuan,
-        fields.hargaModal,
-        fields.hargaJual,
-        fields.stok,
-        fields.lemari,
-        fields.status,
+        ...adapter.values(fields),
         nextVersion,
         operation.deviceTime,
         serverTime,
-        authorId,
+        author.id,
         operation.itemId,
       )
       .run();
   } catch {
     await recordAudit(
       db,
-      authorId,
+      adapter.entity,
+      author.id,
       deviceId,
       operation,
       'rejected',
       serverTime,
-      existing,
+      adapter.before(existing),
       null,
-      withPusher('duplicate_name', authorId, pushedById),
+      withPusher('duplicate_name', author.id, pushedById),
       null,
     );
     return {
@@ -197,47 +226,34 @@ async function applyFields(
   if (auditSuperseded) {
     await recordAudit(
       db,
-      authorId,
+      adapter.entity,
+      author.id,
       deviceId,
       operation,
       'superseded',
       serverTime,
-      rowToItem(existing),
-      fields,
-      withPusher(`superseded_version:${existing.version}`, authorId, pushedById),
+      adapter.rowToWire(existing),
+      adapter.after(fields),
+      withPusher(`superseded_version:${existing.version}`, author.id, pushedById),
       nextVersion,
     );
   }
 
   await recordAudit(
     db,
-    authorId,
+    adapter.entity,
+    author.id,
     deviceId,
     operation,
     'applied',
     serverTime,
-    existing,
-    fields,
-    withPusher(note, authorId, pushedById),
+    adapter.before(existing),
+    adapter.after(fields),
+    withPusher(note, author.id, pushedById),
     nextVersion,
   );
 
-  const item: ItemWire = {
-    id: operation.itemId,
-    ...fields,
-    version: nextVersion,
-    updatedAt: operation.deviceTime,
-    serverUpdatedAt: serverTime,
-  };
-
-  return {
-    operationId: operation.operationId,
-    itemId: operation.itemId,
-    status: 'applied',
-    message: note,
-    item,
-    version: nextVersion,
-  };
+  return resultFor(adapter, operation, fields, nextVersion, serverTime, note);
 }
 
 async function decide(
@@ -248,6 +264,7 @@ async function decide(
   operation: OperationInput,
   serverTime: string,
 ): Promise<SyncResult> {
+  const adapter = operation.adapter;
   const base = { operationId: operation.operationId, itemId: operation.itemId };
   const note = (value: string) => withPusher(value, author.id, pushedById);
 
@@ -259,6 +276,7 @@ async function decide(
     if (!author.deactivated_at) {
       await recordAudit(
         db,
+        adapter.entity,
         author.id,
         deviceId,
         operation,
@@ -275,6 +293,7 @@ async function decide(
     if (operation.deviceTime > author.deactivated_at) {
       await recordAudit(
         db,
+        adapter.entity,
         author.id,
         deviceId,
         operation,
@@ -291,9 +310,28 @@ async function decide(
     deactivationNote = 'operation_before_deactivation';
   }
 
+  // The pharmacy profile is an admin decision, not daily data entry.
+  if (adapter.requiresAdmin && author.role !== 'admin') {
+    await recordAudit(
+      db,
+      adapter.entity,
+      author.id,
+      deviceId,
+      operation,
+      'rejected',
+      serverTime,
+      null,
+      operation.payload,
+      note('forbidden'),
+      null,
+    );
+    return { ...base, status: 'rejected', message: 'forbidden' };
+  }
+
   if (Date.parse(operation.deviceTime) > Date.parse(serverTime) + CLOCK_SKEW_MS) {
     await recordAudit(
       db,
+      adapter.entity,
       author.id,
       deviceId,
       operation,
@@ -307,10 +345,11 @@ async function decide(
     return { ...base, status: 'conflict', message: 'clock_skew' };
   }
 
-  const validated = validateItemPayload(operation.payload);
+  const validated = adapter.validate(operation.payload);
   if (!validated.ok) {
     await recordAudit(
       db,
+      adapter.entity,
       author.id,
       deviceId,
       operation,
@@ -323,52 +362,56 @@ async function decide(
     );
     return { ...base, status: 'rejected', message: 'validation' };
   }
-  const fields = validated.value;
+  const fields = validated.fields;
 
   if (operation.action === 'create') {
-    const existing = await db.prepare('SELECT * FROM items WHERE id = ?').bind(operation.itemId).first<ItemRow>();
+    const existing = await db
+      .prepare(`SELECT * FROM ${adapter.table} WHERE id = ?`)
+      .bind(operation.itemId)
+      .first<Record<string, unknown>>();
     if (existing) {
       await recordAudit(
         db,
+        adapter.entity,
         author.id,
         deviceId,
         operation,
         'conflict',
         serverTime,
-        existing,
-        fields,
+        adapter.before(existing),
+        adapter.after(fields),
         note('record_exists'),
-        existing.version,
+        Number(existing.version),
       );
-      return { ...base, status: 'conflict', message: 'record_exists', item: rowToItem(existing) };
+      return {
+        ...base,
+        status: 'conflict',
+        message: 'record_exists',
+        record: adapter.rowToWire(existing),
+        item: adapter.entity === 'item' ? (adapter.rowToWire(existing) as ItemWire) : undefined,
+      };
     }
 
-    const sameName = await db
-      .prepare('SELECT id FROM items WHERE nama = ?')
-      .bind(fields.nama)
-      .first<{ id: string }>();
-    if (sameName) {
-      await recordAudit(db, author.id, deviceId, operation, 'rejected', serverTime, null, fields, note('duplicate_name'), null);
-      return { ...base, status: 'rejected', message: 'duplicate_name' };
+    if (adapter.uniqueName) {
+      const sameName = await db
+        .prepare(`SELECT id FROM ${adapter.table} WHERE nama = ?`)
+        .bind(String(fields.nama))
+        .first<{ id: string }>();
+      if (sameName) {
+        await recordAudit(db, adapter.entity, author.id, deviceId, operation, 'rejected', serverTime, null, fields, note('duplicate_name'), null);
+        return { ...base, status: 'rejected', message: 'duplicate_name' };
+      }
     }
 
+    const columns = ['id', ...adapter.columns, 'version', 'device_updated_at', 'server_updated_at', 'created_at', 'updated_by'];
+    const marks = columns.map(() => '?').join(', ');
     try {
       await db
-        .prepare(
-          `INSERT INTO items
-             (id, nama, satuan, harga_modal, harga_jual, stok, lemari, status, version,
-              device_updated_at, server_updated_at, created_at, updated_by)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?, ?, ?)`,
-        )
+        .prepare(`INSERT INTO ${adapter.table} (${columns.join(', ')}) VALUES (${marks})`)
         .bind(
           operation.itemId,
-          fields.nama,
-          fields.satuan,
-          fields.hargaModal,
-          fields.hargaJual,
-          fields.stok,
-          fields.lemari,
-          fields.status,
+          ...adapter.values(fields),
+          1,
           operation.deviceTime,
           serverTime,
           serverTime,
@@ -376,69 +419,89 @@ async function decide(
         )
         .run();
     } catch {
-      await recordAudit(db, author.id, deviceId, operation, 'rejected', serverTime, null, fields, note('duplicate_name'), null);
+      await recordAudit(db, adapter.entity, author.id, deviceId, operation, 'rejected', serverTime, null, fields, note('duplicate_name'), null);
       return { ...base, status: 'rejected', message: 'duplicate_name' };
     }
 
-    const item: ItemWire = {
-      id: operation.itemId,
-      ...fields,
+    const record = adapter.wire(operation.itemId, fields, 1, operation.deviceTime, serverTime);
+    await recordAudit(db, adapter.entity, author.id, deviceId, operation, 'applied', serverTime, null, adapter.after(fields), note(deactivationNote), 1);
+    return {
+      ...base,
+      status: 'applied',
+      message: deactivationNote,
+      item: adapter.entity === 'item' ? (record as ItemWire) : undefined,
+      record,
       version: 1,
-      updatedAt: operation.deviceTime,
-      serverUpdatedAt: serverTime,
     };
-    await recordAudit(db, author.id, deviceId, operation, 'applied', serverTime, null, item, note(deactivationNote), 1);
-    return { ...base, status: 'applied', message: deactivationNote, item, version: 1 };
   }
 
-  const existing = await db.prepare('SELECT * FROM items WHERE id = ?').bind(operation.itemId).first<ItemRow>();
+  const existing = await db
+    .prepare(`SELECT * FROM ${adapter.table} WHERE id = ?`)
+    .bind(operation.itemId)
+    .first<Record<string, unknown>>();
   if (!existing) {
-    await recordAudit(db, author.id, deviceId, operation, 'rejected', serverTime, null, fields, note('not_found'), null);
+    await recordAudit(db, adapter.entity, author.id, deviceId, operation, 'rejected', serverTime, null, fields, note('not_found'), null);
     return { ...base, status: 'rejected', message: 'not_found' };
   }
 
-  if (operation.baseVersion !== existing.version) {
+  const existingVersion = Number(existing.version);
+
+  if (operation.baseVersion !== existingVersion) {
     // Approved rule (B10): the latest device-reported change time wins, but an
     // ambiguous or older ordering is never applied silently.
-    if (operation.deviceTime > existing.device_updated_at) {
-      const note = deactivationNote
+    if (operation.deviceTime > String(existing.device_updated_at)) {
+      const conflictNote = deactivationNote
         ? `${deactivationNote};superseded_base_version:${operation.baseVersion}`
         : `superseded_base_version:${operation.baseVersion}`;
-      return applyFields(db, author.id, pushedById, deviceId, operation, fields, existing, serverTime, note, true);
+      return applyFields(db, author, pushedById, deviceId, operation, fields, existing, serverTime, conflictNote, true);
     }
     if (operation.deviceTime === existing.device_updated_at) {
       await recordAudit(
         db,
+        adapter.entity,
         author.id,
         deviceId,
         operation,
         'conflict',
         serverTime,
-        existing,
-        fields,
+        adapter.before(existing),
+        adapter.after(fields),
         note('ambiguous_order'),
-        existing.version,
+        existingVersion,
       );
-      return { ...base, status: 'conflict', message: 'ambiguous_order', item: rowToItem(existing) };
+      return {
+        ...base,
+        status: 'conflict',
+        message: 'ambiguous_order',
+        record: adapter.rowToWire(existing),
+        item: adapter.entity === 'item' ? (adapter.rowToWire(existing) as ItemWire) : undefined,
+      };
     }
     await recordAudit(
       db,
+      adapter.entity,
       author.id,
       deviceId,
       operation,
       'conflict',
       serverTime,
-      existing,
-      fields,
+      adapter.before(existing),
+      adapter.after(fields),
       note('stale_edit'),
-      existing.version,
+      existingVersion,
     );
-    return { ...base, status: 'conflict', message: 'stale_edit', item: rowToItem(existing) };
+    return {
+      ...base,
+      status: 'conflict',
+      message: 'stale_edit',
+      record: adapter.rowToWire(existing),
+      item: adapter.entity === 'item' ? (adapter.rowToWire(existing) as ItemWire) : undefined,
+    };
   }
 
   return applyFields(
     db,
-    author.id,
+    author,
     pushedById,
     deviceId,
     operation,
@@ -500,7 +563,7 @@ async function applyOperation(
     .prepare(
       `INSERT INTO sync_operations
          (operation_id, staff_id, device_id, author_id, entity, entity_id, action, device_time, server_time, status, message, response_json)
-       VALUES (?, ?, ?, ?, 'item', ?, ?, ?, ?, 'processing', '', '{}')
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'processing', '', '{}')
        ON CONFLICT(operation_id) DO NOTHING`,
     )
     .bind(
@@ -508,6 +571,7 @@ async function applyOperation(
       author.id,
       deviceId,
       author.id,
+      parsed.adapter.entity,
       parsed.itemId,
       parsed.action,
       parsed.deviceTime,

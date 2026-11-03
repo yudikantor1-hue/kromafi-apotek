@@ -148,6 +148,10 @@ function validateItem(value: unknown): Item {
   const item = value as Record<string, unknown>;
 
   if (typeof item.id !== 'string' || !item.id) throw new ImportError('invalid_item');
+  // Packages written before 10.2.16 carry no type and hold goods only.
+  if (item.type !== undefined && item.type !== 'barang' && item.type !== 'jasa') {
+    throw new ImportError('invalid_item');
+  }
   if (typeof item.nama !== 'string' || !item.nama) throw new ImportError('invalid_item');
   if (typeof item.satuan !== 'string') throw new ImportError('invalid_item');
   if (!isFiniteNumber(item.hargaModal) || !isFiniteNumber(item.hargaJual) || !isFiniteNumber(item.stok)) {

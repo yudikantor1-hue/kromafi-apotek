@@ -16,7 +16,9 @@ const ITEM: Item = {
   serverUpdatedAt: '2026-10-01T08:00:01.000Z',
 };
 
-function operation(overrides: Partial<OutboxOperation> = {}): OutboxOperation {
+function operation(
+  overrides: Partial<Extract<OutboxOperation, { entity: 'item' }>> = {},
+): OutboxOperation {
   return {
     operationId: 'op-1',
     entity: 'item',
@@ -25,6 +27,7 @@ function operation(overrides: Partial<OutboxOperation> = {}): OutboxOperation {
     baseVersion: ITEM.version,
     deviceTime: '2026-10-02T08:00:00.000Z',
     payload: {
+      type: 'barang',
       nama: 'Amoxicilin',
       satuan: 'Tablet',
       hargaModal: 400,
@@ -179,5 +182,54 @@ describe('offline credential verification', () => {
     expect(await verifyOfflineCredential('BUDI.SORE', 'rahasia123')).toMatchObject({ staffId: 'staff-budi' });
     expect(await verifyOfflineCredential('budi.sore', 'salah')).toBeNull();
     expect(await verifyOfflineCredential('unknown.user', 'rahasia123')).toBeNull();
+  });
+});
+
+describe('reference data overlay', () => {
+  it('shows a reference record created offline before the centre knows it', async () => {
+    const { queueReferenceSave, loadVisibleReferences } = await import('../src/lib/sync');
+
+    await queueReferenceSave({
+      entity: 'cabinet',
+      confirmedVersion: 0,
+      payload: { nama: 'Lemari baru', status: 'Aktif' },
+      authorId: 'staff-admin',
+    });
+
+    const rows = await loadVisibleReferences('cabinet');
+    expect(rows).toHaveLength(1);
+    expect(rows[0]).toMatchObject({
+      nama: 'Lemari baru',
+      pending: true,
+      pendingAction: 'create',
+      version: 0,
+    });
+    expect(await loadVisibleReferences('doctor')).toHaveLength(0);
+  });
+
+  it('layers a pending pharmacy profile over the confirmed one', async () => {
+    const idb = await import('../src/lib/idb');
+    const { PHARMACY_KEY, loadVisiblePharmacy, queuePharmacySave } = await import('../src/lib/sync');
+
+    await idb.metaSet(PHARMACY_KEY, {
+      id: 'apotek',
+      namaApotek: 'Apotek Lama',
+      alamat: '',
+      version: 2,
+      updatedAt: '2026-10-01T08:00:00.000Z',
+      serverUpdatedAt: '2026-10-01T08:00:00.000Z',
+    });
+
+    await queuePharmacySave({
+      payload: { namaApotek: 'Apotek Baru', alamat: 'Jl. Baru 1' },
+      confirmedVersion: 2,
+      authorId: 'staff-admin',
+    });
+
+    expect(await loadVisiblePharmacy()).toMatchObject({
+      namaApotek: 'Apotek Baru',
+      alamat: 'Jl. Baru 1',
+      pending: true,
+    });
   });
 });

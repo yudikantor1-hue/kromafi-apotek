@@ -6,12 +6,12 @@ Custom pharmacy application built for one pharmacy, designed to be installed by 
 
 A new session should be able to continue from this section alone.
 
-- **What exists.** `app/` is a working production slice for one screen, Barang: sign-in (password, one-time PIN, and offline sign-in), staff administration, item list/search/create/edit/deactivate, a durable offline outbox, idempotent sync with conflict history, and an encrypted export/import package. `UI/` remains the approved prototype for the other 17 menus; those menus are listed in the app but disabled.
-- **What is live.** The app is deployed to the client's own Cloudflare account at https://kromafi-apotek.kromafi.workers.dev (Worker `kromafi-apotek`, D1 `kromafi-apotek`, id `db477559-d51d-40f3-a822-d1cb2c21904e`). Migrations `0001`–`0005` are applied there. It is a trial deployment, not a production launch: the custom domain, a second admin, and data onboarding are still open.
-- **Checks before finishing any change.** From `app/`: `npm run typecheck`, `npm test`, and `npm run build`. All three must pass; the suites currently hold 59 tests.
+- **What exists.** `app/` is a working production slice: sign-in (password, one-time PIN, and offline sign-in), staff administration, the Barang screen (list/search/create/edit/deactivate), and six more screens — Jasa, Lemari, Metode pembayaran, Dokter, Distributor, and Profil apotek. Every screen uses the same durable offline outbox, idempotent sync with conflict history, and the encrypted export/import package. `UI/` remains the approved prototype for the other 10 menus; those menus are listed in the app but disabled.
+- **What is live.** The app is deployed to the client's own Cloudflare account at https://kromafi-apotek.kromafi.workers.dev (Worker `kromafi-apotek`, D1 `kromafi-apotek`, id `db477559-d51d-40f3-a822-d1cb2c21904e`). Migrations `0001`–`0005` are applied there; `0006` (the reference lists and pharmacy profile) is applied locally and still has to be applied remotely. It is a trial deployment, not a production launch: the custom domain, a second admin, and data onboarding are still open.
+- **Checks before finishing any change.** From `app/`: `npm run typecheck`, `npm test`, and `npm run build`. All three must pass; the suites currently hold 68 tests.
 - **Deploying.** From `app/`, apply new migrations with `npx wrangler d1 migrations apply kromafi-apotek --remote`, then `npx wrangler deploy`. Afterwards verify the live Worker: `/api/health` returns `200` and a protected route returns `401` without a session.
 - **Where the rules live.** Every decision question and its recorded answer is in [PLAN.md](PLAN.md) phase 10; keep new answers there and never in the conversation alone. Tables and device storage are in [TABLE.md](TABLE.md). Application behaviour, local setup, and known gaps are in [app/README.md](app/README.md).
-- **Recent work (3 November 2026).** The Petugas screen shows a staff member only their own account, without a notice explaining it (10.2.11). Offline work is judged by the account that recorded it: work recorded after that account's deactivation is cancelled even when an active account sends the queue (10.2.12), and the device drops that work silently, leaving only the server ledger (10.2.13). An admin resets another account's password only while it is Aktif, and the reset ends that account's sessions (10.2.14). Recovering a forgotten password on a single-admin installation is still open, with a three-step recommendation recorded as 10.2.15.
+- **Recent work (3 November 2026).** The Petugas screen shows a staff member only their own account, without a notice explaining it (10.2.11). Offline work is judged by the account that recorded it: work recorded after that account's deactivation is cancelled even when an active account sends the queue (10.2.12), and the device drops that work silently, leaving only the server ledger (10.2.13). An admin resets another account's password only while it is Aktif, and the reset ends that account's sessions (10.2.14). Recovering a forgotten password on a single-admin installation is still open, with a three-step recommendation recorded as 10.2.15. The Lemari, Metode pembayaran, Dokter, Distributor, and Profil apotek screens were added on 3 November 2026 on the same sync engine; the client decided that goods and services share one catalogue (10.2.16) and that the four reference lists keep separate tables (10.2.17). Migration `0006` and `0007` are local until the next deploy. The Jasa screen followed on the same day: goods and services now share one catalogue through `items.type`, with services storing no unit, stock, or cabinet (10.2.16).
 - **Conventions.** Speak to the client in Indonesian; keep project files, code, and documentation in English; staff-facing text inside the app stays Indonesian. Do not edit `UI/index.html` by hand — it is generated from `UI/src` by `UI/build.mjs`. Never write passwords, tokens, or session secrets into files, logs, or chat.
 
 ## Roles
@@ -86,9 +86,9 @@ Every folder and file in the project root, with a short description. Update this
 | [app/src/types.ts](app/src/types.ts) | Shared TypeScript types for items, staff, sessions, and API results. |
 | [app/src/styles.css](app/src/styles.css) | Brand stylesheet for the whole application: layout, drawer, table, forms, and responsive rules. |
 | [app/src/vite-env.d.ts](app/src/vite-env.d.ts) | Vite type declarations. |
-| [app/src/components/](app/src/components) | Screens and UI parts: `LoginPage`, `SetupPage`, `Shell` (drawer and header), `BarangPage`, `PetugasPage`, `ExportModal`, and `Icons` (the icon set). |
+| [app/src/components/](app/src/components) | Screens and UI parts: `LoginPage`, `SetupPage`, `Shell` (drawer and header), `BarangPage`, `JasaPage`, `PetugasPage`, `ReferencePage` (shared by Lemari, Metode pembayaran, Dokter, and Distributor), `ProfilApotekPage`, `ExportModal`, and `Icons` (the icon set). |
 | [app/src/lib/api.ts](app/src/lib/api.ts) | Typed client for the Worker API. |
-| [app/src/lib/idb.ts](app/src/lib/idb.ts) | IndexedDB storage for metadata, items, the outbox, and local credentials. |
+| [app/src/lib/idb.ts](app/src/lib/idb.ts) | IndexedDB storage for metadata, items, reference lists, the outbox, and local credentials. |
 | [app/src/lib/offlineAuth.ts](app/src/lib/offlineAuth.ts) | Device-side PBKDF2 credential creation and verification for offline sign-in. |
 | [app/src/lib/sync.ts](app/src/lib/sync.ts) | Pending overlay, queueing, push, and snapshot refresh against the server. |
 | [app/src/lib/exportImport.ts](app/src/lib/exportImport.ts) | Versioned, AES-GCM-encrypted Barang export and import package. |
@@ -101,13 +101,15 @@ Every folder and file in the project root, with a short description. Update this
 | [app/worker/src/password.ts](app/worker/src/password.ts) | PBKDF2 password hashing and verification. |
 | [app/worker/src/username.ts](app/worker/src/username.ts) | Username validation and normalisation. |
 | [app/worker/src/permissions.ts](app/worker/src/permissions.ts) | Role matrix between staff and admin, enforced on the server. |
-| [app/worker/src/items.ts](app/worker/src/items.ts) | Barang read and write endpoints. |
+| [app/worker/src/items.ts](app/worker/src/items.ts) | Barang read endpoints and the full device snapshot. |
+| [app/worker/src/reference.ts](app/worker/src/reference.ts) | Reference lists and pharmacy profile: validation, storage, and snapshot bundle. |
+| [app/worker/src/entities.ts](app/worker/src/entities.ts) | Per-entity adapters that let one sync engine serve items, reference lists, and settings. |
 | [app/worker/src/sync.ts](app/worker/src/sync.ts) | Idempotent operation push, conflict rules, and snapshot responses. |
 | [app/worker/src/staff.ts](app/worker/src/staff.ts) | Staff administration endpoints: create, edit, activate, reset a password, audit history. |
 | [app/worker/src/recovery.ts](app/worker/src/recovery.ts) | One-time recovery codes used for password reset without email. |
 | [app/worker/src/http.ts](app/worker/src/http.ts) | Request helpers: JSON responses, origin checks, cookies, and error shapes. |
 | [app/worker/src/env.ts](app/worker/src/env.ts) | Worker bindings and environment typing. |
-| [app/worker/migrations/](app/worker/migrations) | D1 schema migrations, applied in order: `0001_init.sql`, `0002_recovery_codes.sql`, `0003_username.sql`, `0004_account_pin.sql`, `0005_operation_author.sql`. |
+| [app/worker/migrations/](app/worker/migrations) | D1 schema migrations, applied in order: `0001_init.sql`, `0002_recovery_codes.sql`, `0003_username.sql`, `0004_account_pin.sql`, `0005_operation_author.sql`, `0006_reference_data.sql`, `0007_item_type.sql`. |
 | [app/worker/seed/dev.sql](app/worker/seed/dev.sql) | Local development accounts only. Never run against the deployed database. |
 | [app/scripts/bootstrap-admin.mjs](app/scripts/bootstrap-admin.mjs) | Creates or resets the first admin from a password typed at the terminal; the password is never written to a file. |
 | [app/scripts/dev-api.mjs](app/scripts/dev-api.mjs) | Local fallback server that runs the same Worker handler and migrations on Node when `workerd` is unavailable. |
