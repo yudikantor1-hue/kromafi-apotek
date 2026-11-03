@@ -546,6 +546,12 @@ These are not blockers for an unrelated first slice. Resolve each before impleme
   - Recorded answer: **Aktif is the default filter** on Barang, Jasa, Petugas, Lemari, Distributor, Dokter, and Metode pembayaran. *Semua* and *Tidak aktif* stay available so the inactive records are never hidden permanently.
   - Implemented in `src/App.tsx`, `src/components/PetugasPage.tsx`, `src/components/ReferencePage.tsx`, and `src/components/JasaPage.tsx`.
 
+- **10.2.24 — How is the final selling price per unit calculated after both discounts?**
+  - Why: reports and margin checks need the price actually received per unit, not the catalogue price, and the nota-level discount has to reach every line somehow.
+  - Owner: client. State: **Answered** (3 November 2026).
+  - Recorded answer: **`harga jual final = harga jual − (diskon tagihan ÷ jumlah) − (diskon total tagihan ÷ total jumlah unit seluruh nota)`.** The line discount is divided by that line's own quantity; the nota-level discount is spread evenly across every unit in the nota, not proportionally to line value. Because both subtractions are exact per unit, `Σ(harga jual final × jumlah)` equals `total_tagihan_final` with no remainder, so a per-unit value is rounded only when it is displayed, never before the multiplication.
+  - Not implemented yet: the Penjualan menu and the `sales`/`sale_lines` tables are still planned.
+
 ### 10.3 Decisions already settled — do not ask again
 
 - **10.3.1** The product is a PWA for one pharmacy, used by multiple staff on multiple devices.
