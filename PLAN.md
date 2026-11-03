@@ -536,7 +536,7 @@ Goal: prove the approved PWA + Cloudflare architecture with one complete, low-ri
 - **11.3.4** Two-device edits preserve both audit events in chronological history; the latest valid device-reported timestamp determines the active value, and clock uncertainty is surfaced for review. — **Verified**
 - **11.3.5** Each operation records its author, and the server compares that author's deactivation time with the operation's device time when the operation is processed: later work is cancelled even when an active account sends the queue, earlier work is applied and noted, and in-flight ledger rows are closed on deactivation. Cancelled or held operations stay visible and auditable. — **Verified**
 - **11.3.6** A new device can initialize Barang data from Cloudflare sync or the encrypted export package; import changes only the local cache and is blocked when the target has pending work. — **Verified**
-- **11.3.7** Automated tests cover online persistence, offline reload, two-device sync, idempotency, author-based deactivation, clock conflicts, import validation, and permissions. — **Verified** (58 tests)
+- **11.3.7** Automated tests cover online persistence, offline reload, two-device sync, idempotency, author-based deactivation, clock conflicts, import validation, and permissions. — **Verified** (59 tests)
 
 ### 11.4 Implementation todo list
 
