@@ -194,7 +194,7 @@ export function PetugasPage({ isAdmin, selfId, addSignal }: PetugasPageProps) {
         </p>
       )}
 
-      {isAdmin ? (
+      {isAdmin && (
         <section className="card">
           <div className="toolbar">
             <select
@@ -209,10 +209,6 @@ export function PetugasPage({ isAdmin, selfId, addSignal }: PetugasPageProps) {
             </select>
           </div>
         </section>
-      ) : (
-        <p className="notice notice-info" role="status">
-          Anda hanya dapat melihat dan mengubah akun sendiri.
-        </p>
       )}
 
       <section className="card">
@@ -279,9 +275,12 @@ export function PetugasPage({ isAdmin, selfId, addSignal }: PetugasPageProps) {
                   </button>
                 ) : (
                   <>
-                    <button type="button" className="btn btn-secondary" onClick={() => openPassword('reset')}>
-                      Reset password
-                    </button>
+                    {/* A reset is offered only while the account is active (10.2.14). */}
+                    {detail.status === 'Aktif' && (
+                      <button type="button" className="btn btn-secondary" onClick={() => openPassword('reset')}>
+                        Reset password
+                      </button>
+                    )}
                     <button
                       type="button"
                       className={`btn ${detail.status === 'Aktif' ? 'btn-danger' : 'btn-primary'}`}
@@ -345,7 +344,8 @@ export function PetugasPage({ isAdmin, selfId, addSignal }: PetugasPageProps) {
                   <p className="small muted" style={{ marginBottom: 12 }}>
                     {passwordMode === 'self'
                       ? 'Nama dan username tidak dapat diubah. Di sini Anda hanya dapat mengganti password sendiri.'
-                      : 'Sampaikan password baru ini langsung ke petugas yang bersangkutan.'}
+                      : 'Password baru ini menggantikan password lama dan mengakhiri semua sesi akun. '
+                        + 'Sampaikan langsung kepada petugas, lalu minta mereka menggantinya sendiri setelah masuk.'}
                   </p>
 
                   <label className="field">

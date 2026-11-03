@@ -249,8 +249,9 @@ The schedule, retention period, and who verifies a restore are still undecided (
 - Deactivating an account also closes any ledger row the server had already claimed for it, so nothing
   of that account stays in flight.
 - Held work stays in the outbox, is shown on the Barang screen with a plain-language reason, and can
-  be corrected and re-sent or discarded. Cancelled work stays visible there too, labelled **Dibatalkan**:
-  it is never re-sent, and the staff member can discard it.
+  be corrected and re-sent or discarded. Work the centre cancels (10.2.13) is removed from the device
+  silently: it is never re-sent, never listed in the outbox, and raises no notice, because the server
+  decides it in the background.
 
 **Password recovery (no email service)**
 
@@ -268,7 +269,8 @@ The schedule, retention period, and who verifies a restore are still undecided (
 
 **Staff administration (admin only)**
 
-- Create, edit, activate/deactivate accounts, and reset a password from the Petugas screen.
+- Create, edit, activate/deactivate accounts, and reset a password from the Petugas screen. **Reset
+  password** is offered only while the account is **Aktif**, and the server refuses it otherwise.
 - Creating an account asks for no password. The server issues a **6-digit temporary PIN**
   (24 hours, single use, shown once and printable) that the admin hands to the new staff member.
   Signing in with that PIN opens only a password screen: every other route stays closed until the
@@ -279,6 +281,9 @@ The schedule, retention period, and who verifies a restore are still undecided (
   change their own password from their account detail.
 - Deactivating an account or resetting its password ends its sessions immediately; a deactivated
   account is refused at sign-in with a clear message.
+- A reset sets a temporary password the admin hands over; the staff member changes it from their own
+  account detail after signing in. The screen never shows the old password, and the audit row records
+  the acting admin, the target, and the action without any password data.
 - An admin cannot change their own role or deactivate themselves, and the last active admin cannot be
   removed, so the pharmacy cannot lock itself out.
 - Every account change is written to the audit log with the acting admin and before/after values, but
@@ -302,6 +307,9 @@ The schedule, retention period, and who verifies a restore are still undecided (
 - Only the Barang screen is implemented; the other 17 prototype menus are listed but disabled.
 - Password recovery does not use email (P5 was resolved in favour of one-time recovery codes). A
   staff member who has no codes left needs an admin to reset the password from the Petugas screen.
+- If the only admin loses the password and has no codes left, the break-glass path is
+  `node scripts/bootstrap-admin.mjs --remote --reset --username <admin>` from a terminal with access
+  to the Cloudflare account; it replaces the password and ends that account's sessions (10.2.15).
 - Staff accounts created before this feature (the local seed) still come from
   [worker/seed/dev.sql](worker/seed/dev.sql); production accounts are created through the app.
 - Only one staff account is provisioned per device at a time; switching accounts offline works by

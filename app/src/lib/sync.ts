@@ -35,8 +35,8 @@ export function mergePending(confirmed: Item[], outbox: OutboxOperation[]): Visi
   const byId = new Map<string, VisibleItem>(confirmed.map((item) => [item.id, { ...item }]));
 
   for (const operation of outbox) {
-    // Cancelled work will never reach the center, so it must not keep a record
-    // looking pending (10.2.12).
+    // A stale cancelled row must not keep a record looking pending; new
+    // cancellations are dropped from the outbox entirely (10.2.13).
     if (operation.status === 'cancelled') continue;
 
     const base = byId.get(operation.itemId);
@@ -109,7 +109,6 @@ export interface SyncSummary {
   applied: number;
   duplicates: number;
   held: number;
-  cancelled: number;
   message: string;
 }
 
@@ -119,7 +118,13 @@ export interface SyncSummary {
  */
 export async function syncNow(authorId: string): Promise<SyncSummary> {
   const deviceId = await getOrCreateDeviceId();
-  const queued = (await outboxAll()).filter((operation) => operation.status === 'pending');
+  const stored = await outboxAll();
+  // Cancellation is silent (10.2.13): a row an older build already marked
+  // cancelled is removed, never shown, and never sent.
+  for (const operation of stored) {
+    if (operation.status === 'cancelled') await outboxDelete(operation.operationId);
+  }
+  const queued = stored.filter((operation) => operation.status === 'pending');
 
   // Queues recorded before authors were stored keep working: the account that
   // sends them is the best attribution available.
@@ -136,7 +141,6 @@ export async function syncNow(authorId: string): Promise<SyncSummary> {
     applied: 0,
     duplicates: 0,
     held: 0,
-    cancelled: 0,
     message: '',
   };
 
@@ -157,8 +161,7 @@ export async function syncNow(authorId: string): Promise<SyncSummary> {
       await applyPushResult(result, batch);
       if (result.status === 'applied') summary.applied += 1;
       else if (result.status === 'duplicate') summary.duplicates += 1;
-      else if (result.status === 'cancelled') summary.cancelled += 1;
-      else {
+      else if (result.status !== 'cancelled') {
         summary.held += 1;
         summary.ok = false;
       }
@@ -192,14 +195,15 @@ async function applyPushResult(result: SyncResult, batch: OutboxOperation[]): Pr
     return;
   }
 
-  if (!operation) return;
-
-  // Cancelled work stays on the device with its reason so the staff member can
-  // see what was dropped, but it is never sent again.
+  // The centre cancels work of a deactivated account on its own (10.2.13), so
+  // the device drops it without a notice: it is never sent again and leaves
+  // no trace.
   if (result.status === 'cancelled') {
-    await outboxPut({ ...operation, status: 'cancelled', message: result.message });
+    await outboxDelete(result.operationId);
     return;
   }
+
+  if (!operation) return;
 
   await outboxPut({ ...operation, status: 'held', message: result.message });
 }

@@ -9,8 +9,6 @@ const HELD_MESSAGES: Record<string, string> = {
   stale_edit: 'Versi di pusat lebih baru; perubahan ini ditahan untuk diperiksa.',
   ambiguous_order: 'Waktu perubahan sama dengan versi lain; perlu diperiksa manual.',
   clock_skew: 'Jam perangkat berbeda jauh dari server; periksa jam lalu kirim ulang.',
-  account_deactivated: 'Dibatalkan karena akun pembuat perubahan sudah dinonaktifkan.',
-  account_deactivated_without_timestamp: 'Dibatalkan karena waktu deaktivasi akun tidak tercatat.',
   unknown_author: 'Akun pembuat perubahan tidak dikenal pusat.',
   invalid_author_id: 'Perubahan lama ini tidak menyebut akun pembuatnya; simpan ulang dari akun Anda.',
   duplicate_name: 'Nama barang sudah dipakai.',
@@ -128,8 +126,7 @@ export function BarangPage({
 
   const visible = filtered.slice(0, visibleCount);
   const held = outbox.filter((operation) => operation.status === 'held');
-  const cancelled = outbox.filter((operation) => operation.status === 'cancelled');
-  const unresolved = [...cancelled, ...held];
+  const unresolved = held;
   const heldOperationIds = new Set(held.map((operation) => operation.operationId));
   const lemariOptions = [...new Set(items.map((item) => item.lemari).filter(Boolean))].sort((a, b) =>
     a.localeCompare(b, 'id', { sensitivity: 'base' }),
@@ -163,7 +160,7 @@ export function BarangPage({
         <section className="card card-pad" aria-label="Perubahan yang belum masuk ke pusat">
           <div className="spread" style={{ marginBottom: 12 }}>
             <h3 style={{ fontSize: 14 }}>Perubahan yang belum masuk ke pusat</h3>
-            <span className={`chip ${cancelled.length > 0 ? 'chip-inactive' : 'chip-held'}`}>
+            <span className="chip chip-held">
               {unresolved.length} operasi
             </span>
           </div>
@@ -179,11 +176,7 @@ export function BarangPage({
                     </span>
                   </div>
                   <div className="row" style={{ justifyContent: 'flex-end' }}>
-                    <span
-                      className={`chip ${operation.status === 'cancelled' ? 'chip-inactive' : 'chip-held'}`}
-                    >
-                      {operation.status === 'cancelled' ? 'Dibatalkan' : 'Ditahan'}
-                    </span>
+                    <span className="chip chip-held">Ditahan</span>
                     <button
                       type="button"
                       className="btn-link"
@@ -198,7 +191,6 @@ export function BarangPage({
           </div>
           <p className="small muted" style={{ marginTop: 12 }}>
             Data yang ditahan tidak dihapus dan tidak menimpa data pusat. Perbaiki datanya lalu simpan ulang.
-            Perubahan yang dibatalkan tidak dikirim lagi; tekan Buang untuk membersihkannya dari perangkat.
           </p>
         </section>
       )}

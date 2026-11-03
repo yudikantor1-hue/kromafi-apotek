@@ -328,6 +328,40 @@ describe('staff administration', () => {
     expect((await login('user', 'rahasia123')).response.status).toBe(401);
   });
 
+  it('offers a reset only for an active account', async () => {
+    const admin = await login('admin');
+    const staff = await login('user');
+
+    // Staff cannot use the admin reset route, not even against themselves.
+    const asStaff = await jsonRequest('/api/staff/staff-admin/password', staff.cookie, {
+      password: 'sandi-lain-123',
+    });
+    expect(asStaff.status).toBe(403);
+
+    const deactivated = await send('PUT', '/api/staff/staff-budi', admin.cookie, {
+      name: 'Budi',
+      username: 'user',
+      role: 'staf',
+      status: 'Tidak aktif',
+    });
+    expect(deactivated.status).toBe(200);
+
+    const refused = await jsonRequest('/api/staff/staff-budi/password', admin.cookie, {
+      password: 'sandi-baru-123',
+    });
+    expect(refused.status).toBe(400);
+    expect(await refused.json()).toMatchObject({ error: 'account_inactive' });
+
+    // The stored password was not touched: it still works once reactivated.
+    await send('PUT', '/api/staff/staff-budi', admin.cookie, {
+      name: 'Budi',
+      username: 'user',
+      role: 'staf',
+      status: 'Aktif',
+    });
+    expect((await login('user', 'rahasia123')).response.status).toBe(200);
+  });
+
   it('refuses to let an admin lock themselves out', async () => {
     const admin = await login('admin');
 

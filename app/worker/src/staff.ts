@@ -321,6 +321,9 @@ export async function handleStaffPassword(
 
   const target = await findStaff(db, id);
   if (!target) return apiError(404, 'not_found');
+  // A reset serves an account in use (10.2.14). An inactive account is
+  // reactivated first, so a dormant credential is never changed blind.
+  if (target.status !== 'Aktif') return apiError(400, 'account_inactive');
 
   const credential = await hashPassword(password);
   await db

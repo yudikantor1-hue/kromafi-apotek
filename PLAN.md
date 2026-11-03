@@ -123,7 +123,7 @@ Goal: create the production application foundation and secure access before enab
 
 ### 3.6 Tests
 
-- **3.6.1** Add tests for session expiry, inactive accounts, role restrictions, and API error responses. — **100%** (58 automated tests pass across the Worker and offline suites)
+- **3.6.1** Add tests for session expiry, inactive accounts, role restrictions, and API error responses. — **100%** (59 automated tests pass across the Worker and offline suites)
 
 ### 3.7 Exit gate
 
@@ -135,7 +135,7 @@ Goal: create the production application foundation and secure access before enab
 
 - **3.8.1** Replace the initial-password field with a temporary one-time PIN that the new staff member uses to sign in and set their own password. — **100%** (implemented: 6 digits, 24 hours, single use, PBKDF2-hashed, shown once with a print button; signing in with it opens only the password screen, and every other API route answers 403 password_change_required until a password of at least 8 characters is set)
 - **3.8.2** Allow any number of admin accounts, as decided in 10.2.9, while keeping the guard that the last active admin cannot be removed. — **100%** (the app already accepts multiple admins and refuses to remove the last active one)
-- **3.8.3** Cover the PIN flow with tests: only six digits are accepted, the PIN works exactly once, it is refused after 24 hours, it is refused for a deactivated account, a new PIN invalidates the old one, and the forced password screen blocks the app until a password is set. — **100%** (six tests in tests/worker.test.ts, 58 tests in total; also verified end to end against the local API)
+- **3.8.3** Cover the PIN flow with tests: only six digits are accepted, the PIN works exactly once, it is refused after 24 hours, it is refused for a deactivated account, a new PIN invalidates the old one, and the forced password screen blocks the app until a password is set. — **100%** (six tests in tests/worker.test.ts, 59 tests in total; also verified end to end against the local API)
 
 ---
 
@@ -482,6 +482,23 @@ These are not blockers for an unrelated first slice. Resolve each before impleme
   - Recorded answer (3 November 2026): yes. Every operation carries the account that recorded it plus the device time at which it was recorded, and device clock differences between devices are accepted as they are. The server stores each account's deactivation time and re-checks status while processing. Work recorded after that time is **cancelled** (`account_deactivated`) and never applied; work recorded earlier stays acceptable under B5a and its audit note says `operation_before_deactivation`. When the sender differs from the author, the note adds `pushed_by:<staffId>`, and the audit row belongs to the author. Reactivating an account clears its deactivation time so a later deactivation records a fresh one, and deactivating an account closes any ledger row the server had already claimed for it.
   - Implemented in `worker/src/sync.ts`, `worker/src/staff.ts`, migration `0005_operation_author.sql`, and the device outbox (`src/lib/sync.ts`, `src/components/BarangPage.tsx`).
 
+- **10.2.13 — Should cancelled offline work be reported to the device or to the admin?**
+  - Why: the first 10.2.12 build showed a notice ("N perubahan dibatalkan…") and kept a **Dibatalkan** entry in the outbox, which asks the staff member to react to work the server has already refused for good.
+  - Owner: client. State: **Answered** (3 November 2026).
+  - Recorded answer: cancellation is **silent**. The server decides it while processing, the device drops the operation from its outbox, and nothing is shown — no notice, no confirmation, no cancelled row in the Barang list. The audit ledger still records the cancelled operation, so an admin can inspect it there.
+  - Implemented in `src/lib/sync.ts`, `src/App.tsx`, and `src/components/BarangPage.tsx`.
+
+- **10.2.14 — What is the password reset procedure, and which accounts may use it?**
+  - Why: the Petugas screen offered **Reset password** for every other account, including deactivated ones, and the server accepted it.
+  - Owner: client. State: **Answered** (3 November 2026).
+  - Recorded answer: an admin resets another account's password from its detail by typing a new temporary password of at least 8 characters. The button is shown and the request accepted **only while the target account is Aktif**; a deactivated account must be reactivated first, so a dormant credential is never changed blind. A reset ends every session of that account and is written to the audit log with the acting admin and the target, never with password data. The admin hands the temporary password over, and the staff member changes it from their own account detail after signing in. The Staff role cannot use this route at all.
+  - Implemented in `src/components/PetugasPage.tsx` and `worker/src/staff.ts`.
+
+- **10.2.15 — How does the pharmacy recover when the only admin forgets their password?**
+  - Why: an admin cannot reset their own password from the Petugas screen and the last active admin cannot be deactivated, so a single-admin installation has no in-app path once its recovery codes are lost.
+  - Owner: client. State: **Open**.
+  - Recommendation, in this order: (1) the eight one-time recovery codes issued at bootstrap, printed and stored safely, work from the login screen's *Lupa password?*; (2) a second active admin on every installation, so each can reset the other from Petugas; (3) the break-glass command `node scripts/bootstrap-admin.mjs --remote --reset --username <admin>`, which needs a terminal and the Cloudflare account credentials, so possession of the deployment is the proof of ownership. A shipped app cannot safely offer "reset any admin without a credential", and no email service is available (P5).
+
 ### 10.3 Decisions already settled — do not ask again
 
 - **10.3.1** The product is a PWA for one pharmacy, used by multiple staff on multiple devices.
@@ -548,7 +565,7 @@ Goal: prove the approved PWA + Cloudflare architecture with one complete, low-ri
 
 - **12.1.1** `UI/` contains the client-approved prototype and workflow baseline for all 18 menus, including flows and browser-local workflow simulation. It is not the production source.
 - **12.1.2** `app/` contains the production application for the Barang first slice: React/Vite PWA, Worker API, D1 migrations, offline outbox, idempotent sync, conflict history, staff administration, recovery codes, and encrypted export/import.
-- **12.1.3** Automated checks pass: `npm run typecheck` is clean, `npm test` runs 58 tests across the Worker and offline suites, and `npm run build` produces the deployable PWA.
+- **12.1.3** Automated checks pass: `npm run typecheck` is clean, `npm test` runs 59 tests across the Worker and offline suites, and `npm run build` produces the deployable PWA.
 - **12.1.4** The app is deployed as a trial to the client's own Cloudflare account at https://kromafi-apotek.kromafi.workers.dev, with D1 `kromafi-apotek` (`db477559-d51d-40f3-a822-d1cb2c21904e`, region APAC) migrated and a first admin (`admin`) created by `npm run staff:bootstrap -- --remote --username admin`. Staff sign in with a username, not an email.
 - **12.1.5** Workers compatibility is verified on the real `workerd` runtime: `wrangler dev` runs against a local D1 database, and health, sign-in, `401` handling, idempotent sync, and browser reads behave as designed. The earlier `write EOF` fault was an environment defect — a missing Visual C++ 2015–2022 Redistributable (x64) left `workerd.exe` unable to load its UCRT libraries — and installing it fixed the machine.
 - **12.1.6** `workerd` caps PBKDF2 at 100,000 iterations, so the deployed Worker rejected the earlier 210,000-iteration hashes with `500` on every sign-in while local runs stayed green. The setting is now 100,000 — the runtime maximum — and sign-in on the deployed Worker returned `200`. Because older credentials cannot be re-derived, `npm run staff:bootstrap -- --reset` replaces a password and ends its sessions.

@@ -102,9 +102,6 @@ export default function App() {
 
         if (!options.silent) {
           const parts: string[] = [];
-          if (summary.cancelled > 0) {
-            parts.push(`${summary.cancelled} perubahan dibatalkan karena akun pembuatnya sudah nonaktif.`);
-          }
           if (summary.held > 0) parts.push(`${summary.held} perubahan ditahan untuk diperiksa.`);
           if (!summary.ok && parts.length === 0) {
             parts.push('Tidak dapat menghubungi pusat. Data tetap tersimpan di perangkat ini.');
