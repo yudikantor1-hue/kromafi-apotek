@@ -578,6 +578,12 @@ These are not blockers for an unrelated first slice. Resolve each before impleme
   - Recorded answer: **send only what changed since the device's last sync, and let older history arrive gradually.** The snapshot returns notas whose `server_updated_at` is newer than the device cursor; a device with no history yet receives a bounded first page and keeps asking for older pages in the background until its local copy is complete. This keeps the goal of 10.1.7 (full history on every device) without a full read on every sync.
   - Not implemented yet: the Penjualan menu and the delta snapshot are still planned.
 
+- **10.2.29 — Does a sale line store an expiry date, and how is the batch entered?**
+  - Why: the approved prototype shows an expiry date in the line detail but offers no field to enter it, and the item catalogue stores no expiry at all.
+  - Owner: client. State: **Answered** (3 November 2026).
+  - Recorded answer: **no expiry date on a sale line.** `tanggal_expired` is removed from the planned `sale_lines` table, so a sale records no expiry in version 1. `batch` stays on the line as optional free text typed by the cashier. Expiry tracking belongs to the planned batch and invoice work.
+  - Not implemented yet: the Penjualan menu and the `sales`/`sale_lines` tables are still planned.
+
 ### 10.3 Decisions already settled — do not ask again
 
 - **10.3.1** The product is a PWA for one pharmacy, used by multiple staff on multiple devices.
