@@ -566,6 +566,12 @@ These are not blockers for an unrelated first slice. Resolve each before impleme
   - Recorded answer: **yes, print immediately with no marker.** The receipt is identical whether or not the nota has reached the centre: no *belum tersinkron* note, no warning, and no separate layout. A pending nota stays in the device outbox until the centre confirms it. Because the approved prototype prints only after the nota is locked, locking follows the same rule: the signed-in staff member locks the nota on the device while offline, that lock is queued like any other change, and printing never waits for the network.
   - Not implemented yet: the Penjualan menu and the `sales`/`sale_lines` tables are still planned.
 
+- **10.2.27 — How does a sale reduce stock when several devices can sell offline?**
+  - Why: `items.stok` is a stored number edited by the Barang form under per-row versioning, so a sale that wrote it the same way would make two offline devices overwrite each other's stock.
+  - Owner: client. State: **Answered** (3 November 2026).
+  - Recorded answer: **the server reduces stock when the nota arrives.** A device sends only the nota; the Worker decrements `items.stok` once per goods line and writes one `stock_movements` row per decrement in the same transaction. Two devices selling the same item therefore add up instead of replacing each other, and the Barang form keeps working exactly as it does today. Services never touch stock.
+  - Not implemented yet: `stock_movements` and the Penjualan menu are still planned.
+
 ### 10.3 Decisions already settled — do not ask again
 
 - **10.3.1** The product is a PWA for one pharmacy, used by multiple staff on multiple devices.

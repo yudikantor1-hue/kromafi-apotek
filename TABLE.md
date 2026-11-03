@@ -156,7 +156,7 @@ requirements, and migrations in `PLAN.md`.
 
 - `batches` — batch code and expiry date per invoice line.
 - `invoices`, `invoice_lines` — supplier invoices with batch and expiry.
-- `stock_movements` — one row per movement, the single source for stock history.
+- `stock_movements` — one row per stock change, the single source for stock history. A sale writes one row per goods line and the server decrements `items.stok` in the same transaction (10.2.27).
 - `services` is not a separate table: goods and services share `items` with the `type` column added by migration `0007` (decision 10.2.16). The pharmacy profile is implemented as `settings`.
 - No receipt numbering is generated: a nota is identified by its UUID and its receipt prints no code (10.2.25). Supplier invoice numbers are typed from the supplier's own document when invoices are built, so `settings` holds no numbering rules.
 
