@@ -572,6 +572,12 @@ These are not blockers for an unrelated first slice. Resolve each before impleme
   - Recorded answer: **the server reduces stock when the nota arrives.** A device sends only the nota; the Worker decrements `items.stok` once per goods line and writes one `stock_movements` row per decrement in the same transaction. Two devices selling the same item therefore add up instead of replacing each other, and the Barang form keeps working exactly as it does today. Services never touch stock.
   - Not implemented yet: `stock_movements` and the Penjualan menu are still planned.
 
+- **10.2.28 — How does the sales history reach each device without reading the whole history on every sync?**
+  - Why: `syncNow()` requests a full snapshot after every push, so returning every nota each time would read hundreds of thousands of D1 rows repeatedly and put the Free-plan daily row reads at risk.
+  - Owner: client. State: **Answered** (3 November 2026).
+  - Recorded answer: **send only what changed since the device's last sync, and let older history arrive gradually.** The snapshot returns notas whose `server_updated_at` is newer than the device cursor; a device with no history yet receives a bounded first page and keeps asking for older pages in the background until its local copy is complete. This keeps the goal of 10.1.7 (full history on every device) without a full read on every sync.
+  - Not implemented yet: the Penjualan menu and the delta snapshot are still planned.
+
 ### 10.3 Decisions already settled — do not ask again
 
 - **10.3.1** The product is a PWA for one pharmacy, used by multiple staff on multiple devices.
