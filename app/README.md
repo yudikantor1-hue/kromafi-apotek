@@ -1,13 +1,13 @@
 # Kromafi Apotek — production application
 
-This directory holds the production application. It implements eight of the client-approved
-menus — **Barang, Jasa, Petugas, Lemari, Metode pembayaran, Dokter, Distributor, and Profil
+This directory holds the production application. It implements nine of the client-approved
+menus — **Penjualan, Barang, Jasa, Petugas, Lemari, Metode pembayaran, Dokter, Distributor, and Profil
 apotek** — on one offline engine: staff sign-in, staff administration, list/search/create/edit/
 activate, offline pending work, idempotent synchronization, conflict history, and encrypted
 export/import.
 
 It **is deployed as a trial** to the client's own Cloudflare account at
-https://kromafi-apotek.kromafi.workers.dev, with D1 `kromafi-apotek` and migrations `0001`–`0009`
+https://kromafi-apotek.kromafi.workers.dev, with D1 `kromafi-apotek` and migrations `0001`–`0010`
 applied. It is not a production launch yet: the custom domain, a second admin, and data onboarding
 are still open (P1 in [../PLAN.md](../PLAN.md)).
 
@@ -308,7 +308,7 @@ The schedule, retention period, and who verifies a restore are still undecided (
   recovery codes. The custom domain and the second admin are still open (P1).
 - The first admin comes from `npm run staff:bootstrap -- --remote --username admin`, not from the
   Petugas screen. Every later account is created normally from the Petugas screen.
-- Only the Barang screen is implemented; the other 17 prototype menus are listed but disabled.
+- Nine menus are implemented (Penjualan, Barang, Jasa, Petugas, Lemari, Metode pembayaran, Dokter, Distributor, Profil apotek); the remaining prototype menus are listed but disabled.
 - Password recovery does not use email (P5 was resolved in favour of one-time recovery codes). A
   staff member who has no codes left needs an admin to reset the password from the Petugas screen.
 - If the only admin loses the password and has no codes left, the break-glass path is
