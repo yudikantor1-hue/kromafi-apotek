@@ -136,9 +136,8 @@ The initial production database should include the following core entities.
 
 ### Sales and sales lines
 
-- `sales`
-- `sale_lines`
-- capture cashier transaction metadata and line item details
+- `sales` and `sale_lines` — cashier documents and their lines.
+The column-level plan, including the stored final selling price per unit (10.2.24), lives in [TABLE.md](TABLE.md); it is a plan, not an implemented schema.
 
 ### Purchase invoice and invoice lines
 

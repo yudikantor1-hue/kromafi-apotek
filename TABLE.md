@@ -155,11 +155,26 @@ Not yet implemented. Their design is subject to the approved domain rules, offli
 requirements, and migrations in `PLAN.md`.
 
 - `batches` — batch code and expiry date per invoice line.
-- `sales`, `sale_lines` — cashier documents and their lines.
 - `invoices`, `invoice_lines` — supplier invoices with batch and expiry.
 - `stock_movements` — one row per movement, the single source for stock history.
 - `services` is not a separate table: goods and services share `items` with the `type` column added by migration `0007` (decision 10.2.16). The pharmacy profile is implemented as `settings`.
 - Future numbering rules (invoice and receipt numbers) will live in `settings` when sales are built.
+
+**`sales` — planned, not implemented.** One row per cashier document (nota).
+
+- Purpose: the nota header — who sold, when, to whom, with which payment method, and the nota totals.
+- Fields (proposed, awaiting client approval): `id` (text, primary key); `nomor_nota` (text, unique, assigned by the server after a successful sync per 10.1.10, with the number format still open); `tanggal` (text `YYYY-MM-DD`, the business day used by the date filter and daily reports); `waktu` (text, ISO timestamp of the transaction); `total_tagihan` (integer rupiah, the sum of every line's `tagihan_final` before the nota discount); `diskon_total_tagihan` (integer rupiah, the discount applied to the whole nota); `total_tagihan_final` (integer rupiah, `total_tagihan` − `diskon_total_tagihan`, the amount the customer pays); `metode_pembayaran` (text, the method name copied by value so editing that list never rewrites an old nota); `bayar` (integer rupiah, cash received, zero for non-cash methods); `nama_pasien` (text, optional); `nama_dokter` (text, optional, copied by value); `nama_petugas` (text, the signed-in staff name copied by value); `catatan` (text, optional); `locked` (integer `0`/`1`; a locked nota may only be printed, and only an admin may unlock it); plus the shared sync columns `version`, `device_updated_at`, `server_updated_at`, `created_at`, `updated_by`.
+- Keys and relationships: primary key `id`; unique index on `nomor_nota`; index on `tanggal` for the date filter and daily reports; `sale_lines.sale_id` references `sales.id`.
+- Access and lifecycle: written by the sync engine after validation; a nota is locked rather than edited in place and is never deleted. Goods lines create `stock_movements` rows, and the customer must pay the full `total_tagihan_final` (12.6).
+- Source of truth: planned for a future migration. The approved field model is the prototype record `kromafi.penjualan` documented above.
+
+**`sale_lines` — planned, not implemented.** One row per item sold on a nota.
+
+- Purpose: what was sold, in what quantity, at which price, and what the pharmacy actually received per unit after every discount.
+- Fields (proposed, awaiting client approval): `id` (text, primary key); `sale_id` (text, references `sales.id`); `item_id` (text, optional soft reference to `items.id`, kept so history survives renaming or deactivation); `jenis` (`barang`/`jasa`); `nama` (text, item name copied at transaction time); `satuan` (text, unit copied at transaction time); `harga_jual` (integer rupiah, catalogue price per unit at transaction time); `jumlah` (real, quantity sold, which may exceed the recorded stock because negative stock is allowed); `diskon_tagihan` (integer rupiah, discount on this line only); `tagihan` (integer rupiah, `harga_jual` × `jumlah`); `tagihan_final` (integer rupiah, `tagihan` − `diskon_tagihan`); `harga_jual_final` (real rupiah per unit, the price actually received after both discounts: `harga_jual` − (`diskon_tagihan` ÷ `jumlah`) − (`diskon_total_tagihan` ÷ total units on the nota), decision 10.2.24); `batch` (text, optional batch code for goods); `tanggal_expired` (text, optional expiry date of that batch); plus the shared sync columns listed under `sales`.
+- Keys and relationships: primary key `id`; index on `sale_id`; `item_id` is a soft reference and never a cascading delete.
+- Access and lifecycle: written together with its `sales` row through the sync engine, and kept permanently even after the item is renamed or deactivated, because the nota must keep the name and price the customer paid (10.1.14). `harga_jual_final` is computed on the server from the stored discount fields, never accepted from the device, and stored so per-item reports can sum it without re-deriving the nota discount allocation on every read.
+- Source of truth: planned for a future migration; the formula is decision 10.2.24 and the field model follows the prototype line record.
 
 ## Table documentation format
 
