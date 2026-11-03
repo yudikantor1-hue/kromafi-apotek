@@ -1174,4 +1174,104 @@ describe('sales', () => {
     });
     expect((await after.json()).sales).toHaveLength(0);
   });
+  it('edits an unlocked nota and moves stock by the difference', async () => {
+    const { cookie } = await login('admin');
+    await seedItem(cookie);
+    const created = saleOperation();
+    await push(cookie, 'device-1', [created]);
+
+    const edit = saleOperation(
+      { action: 'update', itemId: created.itemId, baseVersion: 1 },
+      {
+        bayar: 300,
+        items: [
+          {
+            itemId: ITEM_ID,
+            jenis: 'barang',
+            nama: 'Paracetamol 500mg',
+            satuan: 'Tablet',
+            hargaJual: 500,
+            jumlah: 1,
+            diskonTagihan: 100,
+            batch: 'B1',
+          },
+        ],
+      },
+    );
+    const { body } = await push(cookie, 'device-1', [edit]);
+    expect(body.results[0]).toMatchObject({ status: 'applied', message: 'sale_edited' });
+
+    const sale = db.raw<Record<string, number>>('SELECT * FROM sales WHERE id = ?', created.itemId)[0];
+    expect(sale.total_tagihan_final).toBe(200);
+    expect(sale.version).toBe(2);
+    expect(db.raw<{ c: number }>('SELECT COUNT(*) AS c FROM sale_lines WHERE sale_id = ?', created.itemId)[0].c).toBe(1);
+    expect(db.raw<{ stok: number }>('SELECT stok FROM items WHERE id = ?', ITEM_ID)[0].stok).toBe(9);
+
+    const movements = db.raw<{ jenis: string; jumlah: number; stok_setelah: number }>(
+      'SELECT jenis, jumlah, stok_setelah FROM stock_movements WHERE sale_id = ? ORDER BY rowid ASC',
+      created.itemId,
+    );
+    expect(movements).toHaveLength(2);
+    expect(movements[1]).toMatchObject({ jenis: 'koreksi', jumlah: -1, stok_setelah: 9 });
+  });
+
+  it('refuses to edit a locked nota and leaves its stock alone', async () => {
+    const { cookie } = await login('admin');
+    await seedItem(cookie);
+    const created = saleOperation();
+    await push(cookie, 'device-1', [created]);
+
+    const locked = await push(cookie, 'device-1', [
+      {
+        operationId: crypto.randomUUID(),
+        entity: 'sale',
+        action: 'update',
+        itemId: created.itemId,
+        authorId: 'staff-admin',
+        baseVersion: 1,
+        deviceTime: iso(),
+        payload: { locked: true },
+      },
+    ]);
+    expect(locked.body.results[0].status).toBe('applied');
+
+    const edit = saleOperation(
+      { action: 'update', itemId: created.itemId, baseVersion: 2 },
+      {
+        bayar: 500,
+        items: [
+          {
+            itemId: ITEM_ID,
+            jenis: 'barang',
+            nama: 'Paracetamol 500mg',
+            satuan: 'Tablet',
+            hargaJual: 500,
+            jumlah: 1,
+            diskonTagihan: 0,
+            batch: '',
+          },
+        ],
+      },
+    );
+    const { body } = await push(cookie, 'device-1', [edit]);
+    expect(body.results[0]).toMatchObject({ status: 'rejected', message: 'locked' });
+    expect(db.raw<{ stok: number }>('SELECT stok FROM items WHERE id = ?', ITEM_ID)[0].stok).toBe(8);
+  });
+
+  it('serves the page of notas older than the oldest one the device holds', async () => {
+    const { cookie } = await login('admin');
+    await seedItem(cookie);
+    const operation = saleOperation();
+    await push(cookie, 'device-1', [operation]);
+
+    const newest = await call('/api/sync/snapshot', { headers: { cookie } });
+    const newestBody = await newest.json();
+    expect(newestBody.sales).toHaveLength(1);
+    const oldest = newestBody.sales[0].serverUpdatedAt as string;
+
+    const older = await call(`/api/sync/snapshot?salesBefore=${encodeURIComponent(oldest)}`, {
+      headers: { cookie },
+    });
+    expect((await older.json()).sales).toHaveLength(0);
+  });
 });

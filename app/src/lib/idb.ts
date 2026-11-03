@@ -1,7 +1,7 @@
-import type { Item, LocalCredential, OutboxOperation } from '../types';
+import type { Item, LocalCredential, OutboxOperation, Sale } from '../types';
 
 const DB_NAME = 'kromafi-apotek';
-const DB_VERSION = 3;
+const DB_VERSION = 4;
 
 export const STORE = {
   meta: 'meta',
@@ -12,6 +12,7 @@ export const STORE = {
   paymentMethods: 'paymentMethods',
   doctors: 'doctors',
   suppliers: 'suppliers',
+  sales: 'sales',
 } as const;
 
 export type StoreName = (typeof STORE)[keyof typeof STORE];
@@ -23,6 +24,7 @@ const RECORD_STORES: StoreName[] = [
   STORE.paymentMethods,
   STORE.doctors,
   STORE.suppliers,
+  STORE.sales,
 ];
 
 let dbPromise: Promise<IDBDatabase> | null = null;
@@ -143,6 +145,25 @@ export async function itemsUpsertMany(items: Item[]): Promise<void> {
     transaction.oncomplete = () => resolve();
     transaction.onerror = () => reject(transaction.error ?? new Error('items_write_failed'));
   });
+}
+
+export async function recordsUpsertMany<T>(storeName: StoreName, rows: T[]): Promise<void> {
+  const db = await openDatabase();
+  await new Promise<void>((resolve, reject) => {
+    const transaction = db.transaction(storeName, 'readwrite');
+    const store = transaction.objectStore(storeName);
+    for (const row of rows) store.put(row);
+    transaction.oncomplete = () => resolve();
+    transaction.onerror = () => reject(transaction.error ?? new Error('records_write_failed'));
+  });
+}
+
+export async function salesAll(): Promise<Sale[]> {
+  return recordsAll<Sale>(STORE.sales);
+}
+
+export async function salesUpsertMany(sales: Sale[]): Promise<void> {
+  await recordsUpsertMany(STORE.sales, sales);
 }
 
 export async function outboxAll(): Promise<OutboxOperation[]> {

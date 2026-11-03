@@ -1,4 +1,5 @@
 import { LOCKED_PAYMENT_METHOD_ID } from '../types';
+import { saleFromPayload } from './saleMath';
 import { api } from './api';
 import {
   itemsAll,
@@ -11,6 +12,8 @@ import {
   outboxPut,
   recordsAll,
   recordsReplaceAll,
+  salesAll,
+  salesUpsertMany,
   STORE,
   type StoreName,
 } from './idb';
@@ -23,16 +26,24 @@ import type {
   Reference,
   ReferenceEntity,
   ReferencePayload,
+  Sale,
+  SaleLockPayload,
+  SalePayload,
   SyncResult,
   VisibleItem,
   VisiblePharmacy,
   VisibleReference,
+  VisibleSale,
 } from '../types';
 
 export const DEVICE_ID_KEY = 'deviceId';
 export const LAST_SYNC_KEY = 'lastSyncAt';
 export const CURSOR_KEY = 'cursor';
 export const PHARMACY_KEY = 'pharmacyProfile';
+/** The newest and oldest `server_updated_at` of the notas this device keeps (10.2.28). */
+export const SALES_CURSOR_KEY = 'salesCursor';
+export const SALES_FLOOR_KEY = 'salesFloor';
+export const SALES_BACKFILL_KEY = 'salesBackfilled';
 
 /** Which on-device store holds the confirmed rows of each reference list. */
 export const REFERENCE_STORES: Record<ReferenceEntity, StoreName> = {
@@ -265,6 +276,133 @@ export async function loadVisiblePharmacy(): Promise<VisiblePharmacy | null> {
   };
 }
 
+export interface SaveSaleInput {
+  payload: SalePayload;
+  /** Set only when correcting a saved nota; its id comes from that nota. */
+  saleId?: string;
+  confirmedVersion: number;
+  authorId: string;
+}
+
+/** A nota edit carries its lines; a lock change carries only `locked`. */
+function isSaleEdit(operation: OutboxOperation): boolean {
+  return operation.entity === 'sale' && Array.isArray((operation.payload as SalePayload).items);
+}
+
+/** One queued operation per nota, so an offline edit collapses into itself. */
+export async function queueSaleSave(input: SaveSaleInput): Promise<OutboxOperation> {
+  const saleId = input.saleId ?? crypto.randomUUID();
+  const existing = (await outboxAll()).find(
+    (operation) =>
+      operation.entity === 'sale' &&
+      operation.itemId === saleId &&
+      operation.status !== 'cancelled' &&
+      isSaleEdit(operation),
+  );
+
+  const operation: OutboxOperation = {
+    operationId: existing?.operationId ?? crypto.randomUUID(),
+    entity: 'sale',
+    action: input.saleId ? 'update' : 'create',
+    itemId: saleId,
+    authorId: existing?.authorId ?? input.authorId,
+    baseVersion: existing?.baseVersion ?? input.confirmedVersion,
+    deviceTime: new Date().toISOString(),
+    payload: input.payload,
+    queuedAt: existing?.queuedAt ?? new Date().toISOString(),
+    status: 'pending',
+  };
+
+  await outboxPut(operation);
+  return operation;
+}
+
+export async function queueSaleLock(input: {
+  saleId: string;
+  locked: boolean;
+  baseVersion: number;
+  authorId: string;
+}): Promise<OutboxOperation> {
+  const existing = (await outboxAll()).find(
+    (operation) =>
+      operation.entity === 'sale' &&
+      operation.itemId === input.saleId &&
+      operation.status !== 'cancelled' &&
+      !isSaleEdit(operation),
+  );
+
+  const operation: OutboxOperation = {
+    operationId: existing?.operationId ?? crypto.randomUUID(),
+    entity: 'sale',
+    action: 'update',
+    itemId: input.saleId,
+    authorId: existing?.authorId ?? input.authorId,
+    baseVersion: existing?.baseVersion ?? input.baseVersion,
+    deviceTime: new Date().toISOString(),
+    payload: { locked: input.locked },
+    queuedAt: existing?.queuedAt ?? new Date().toISOString(),
+    status: 'pending',
+  };
+
+  await outboxPut(operation);
+  return operation;
+}
+
+/** Newest first: the cashier's list starts with the nota just rung up. */
+export async function loadVisibleSales(): Promise<{ sales: VisibleSale[]; outbox: OutboxOperation[] }> {
+  const [confirmed, outbox] = await Promise.all([salesAll(), outboxAll()]);
+  const byId = new Map<string, VisibleSale>(confirmed.map((sale) => [sale.id, { ...sale }]));
+
+  for (const operation of outbox) {
+    if (operation.entity !== 'sale' || operation.status === 'cancelled') continue;
+    const base = byId.get(operation.itemId);
+
+    if (isSaleEdit(operation)) {
+      const draft = saleFromPayload(operation.itemId, operation.payload as SalePayload, base, operation.deviceTime);
+      byId.set(operation.itemId, {
+        ...draft,
+        pending: true,
+        pendingOperationId: operation.operationId,
+        pendingAction: base ? 'update' : 'create',
+      });
+      continue;
+    }
+
+    if (!base) continue;
+    byId.set(operation.itemId, {
+      ...base,
+      locked: Boolean((operation.payload as SaleLockPayload).locked),
+      updatedAt: operation.deviceTime,
+      pending: true,
+      pendingOperationId: operation.operationId,
+      pendingAction: 'update',
+    });
+  }
+
+  return {
+    sales: [...byId.values()].sort((left, right) =>
+      `${right.waktu}${right.id}`.localeCompare(`${left.waktu}${left.id}`),
+    ),
+    outbox,
+  };
+}
+
+/** Remembers the window of notas this device keeps, so pages never overlap. */
+async function rememberSalesPages(rows: Sale[]): Promise<void> {
+  if (rows.length === 0) return;
+  const all = await salesAll();
+  if (all.length === 0) return;
+
+  let newest = all[0].serverUpdatedAt;
+  let oldest = all[0].serverUpdatedAt;
+  for (const sale of all) {
+    if (sale.serverUpdatedAt > newest) newest = sale.serverUpdatedAt;
+    if (sale.serverUpdatedAt < oldest) oldest = sale.serverUpdatedAt;
+  }
+  await metaSet(SALES_CURSOR_KEY, newest);
+  await metaSet(SALES_FLOOR_KEY, oldest);
+}
+
 export interface SyncSummary {
   ok: boolean;
   online: boolean;
@@ -331,7 +469,17 @@ export async function syncNow(authorId: string): Promise<SyncSummary> {
     cursor = response.data?.cursor ?? cursor;
   }
 
-  const snapshot = await api.snapshot();
+  const [salesCursor, salesFloor, backfilled] = await Promise.all([
+    metaGet<string>(SALES_CURSOR_KEY),
+    metaGet<string>(SALES_FLOOR_KEY),
+    metaGet<boolean>(SALES_BACKFILL_KEY),
+  ]);
+  // New notas arrive from the cursor; a fresh device asks for the newest page
+  // first so today's notas show immediately.
+  const snapshot = await api.snapshot(
+    salesCursor || undefined,
+    salesCursor || backfilled ? undefined : salesFloor ?? undefined,
+  );
   if (!snapshot.ok) {
     summary.ok = false;
     summary.online = snapshot.status !== 0;
@@ -349,6 +497,22 @@ export async function syncNow(authorId: string): Promise<SyncSummary> {
   ]);
   if (data?.settings) await metaSet(PHARMACY_KEY, data.settings);
 
+  const fresh = data?.sales ?? [];
+  if (fresh.length > 0) await salesUpsertMany(fresh);
+  await rememberSalesPages(fresh);
+
+  // Older notas arrive one page per sync, and only while nothing newer came in,
+  // so a busy counter is never slowed down by history (10.2.28).
+  if (fresh.length === 0 && !backfilled && salesFloor) {
+    const older = await api.snapshot(undefined, salesFloor);
+    if (older.ok) {
+      const rows = older.data?.sales ?? [];
+      if (rows.length > 0) await salesUpsertMany(rows);
+      else await metaSet(SALES_BACKFILL_KEY, true);
+      await rememberSalesPages(rows);
+    }
+  }
+
   const syncTime = data?.serverTime ?? new Date().toISOString();
   await metaSet(LAST_SYNC_KEY, syncTime);
   await metaSet(CURSOR_KEY, cursor ?? data?.cursor ?? syncTime);
@@ -362,6 +526,11 @@ async function applyPushResult(result: SyncResult, batch: OutboxOperation[]): Pr
 
   if (result.status === 'applied' || result.status === 'duplicate') {
     if (result.item) await itemsUpsertMany([result.item]);
+    const record = result.record as Sale | undefined;
+    if (record && Array.isArray(record.lines)) {
+      await salesUpsertMany([record]);
+      await rememberSalesPages([record]);
+    }
     await outboxDelete(result.operationId);
     return;
   }

@@ -7,6 +7,7 @@ import { LoginPage } from './components/LoginPage';
 import { PetugasPage } from './components/PetugasPage';
 import { ProfilApotekPage } from './components/ProfilApotekPage';
 import { ReferencePage } from './components/ReferencePage';
+import { SalesPage } from './components/SalesPage';
 import { SetupPage } from './components/SetupPage';
 import { Shell } from './components/Shell';
 import { api } from './lib/api';
@@ -28,10 +29,13 @@ import {
   loadVisibleItems,
   loadVisiblePharmacy,
   loadVisibleReferences,
+  loadVisibleSales,
   PHARMACY_KEY,
   queueItemSave,
   queuePharmacySave,
   queueReferenceSave,
+  queueSaleLock,
+  queueSaleSave,
   replaceLocalItems,
   syncNow,
 } from './lib/sync';
@@ -44,10 +48,12 @@ import type {
   Reference,
   ReferenceEntity,
   ReferencePayload,
+  SalePayload,
   Session,
   VisibleItem,
   VisiblePharmacy,
   VisibleReference,
+  VisibleSale,
 } from './types';
 
 const SESSION_KEY = 'session';
@@ -84,6 +90,7 @@ export default function App() {
   const [phase, setPhase] = useState<Phase>('boot');
   const [session, setSession] = useState<Session | null>(null);
   const [items, setItems] = useState<VisibleItem[]>([]);
+  const [sales, setSales] = useState<VisibleSale[]>([]);
   const [references, setReferences] = useState<Record<ReferenceEntity, VisibleReference[]>>(EMPTY_REFERENCES);
   const [pharmacy, setPharmacy] = useState<VisiblePharmacy | null>(null);
   const [pharmacyName, setPharmacyName] = useState('');
@@ -121,14 +128,16 @@ export default function App() {
 
   const refreshLocal = useCallback(async () => {
     const { items: visible, outbox: queued } = await loadVisibleItems();
-    const [cabinets, paymentMethods, doctors, suppliers, profile] = await Promise.all([
+    const [cabinets, paymentMethods, doctors, suppliers, profile, visibleSales] = await Promise.all([
       loadVisibleReferences('cabinet'),
       loadVisibleReferences('payment_method'),
       loadVisibleReferences('doctor'),
       loadVisibleReferences('supplier'),
       loadVisiblePharmacy(),
+      loadVisibleSales(),
     ]);
     setItems(visible);
+    setSales(visibleSales.sales);
     setReferences({
       cabinet: cabinets,
       payment_method: paymentMethods,
@@ -414,6 +423,57 @@ export default function App() {
     );
   }
 
+  /** A nota is saved as one local operation, then confirmed like any other work. */
+  async function handleSaleSave(payload: SalePayload, saleId?: string, confirmedVersion = 0) {
+    setSaving(true);
+    try {
+      await queueSaleSave({ payload, saleId, confirmedVersion, authorId: session?.staff.id ?? '' });
+      await refreshLocal();
+
+      if (navigator.onLine) {
+        await runSync({ silent: true });
+        const remaining = await outboxCount();
+        showNotice(
+          remaining > 0
+            ? 'Ada nota yang perlu diperiksa. Lihat daftar di halaman Penjualan.'
+            : 'Nota dikonfirmasi pusat.',
+        );
+      } else {
+        showNotice('Nota tersimpan di perangkat. Menunggu dikirim ke pusat.');
+      }
+      return null;
+    } catch {
+      return 'Gagal menyimpan nota di perangkat ini. Penyimpanan browser mungkin penuh.';
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function handleSaleLock(saleId: string, locked: boolean, baseVersion: number) {
+    setSaving(true);
+    try {
+      await queueSaleLock({ saleId, locked, baseVersion, authorId: session?.staff.id ?? '' });
+      await refreshLocal();
+
+      if (navigator.onLine) {
+        await runSync({ silent: true });
+        const remaining = await outboxCount();
+        showNotice(
+          remaining > 0
+            ? 'Perubahan kunci nota belum diterima pusat. Lihat daftar di halaman Penjualan.'
+            : 'Kunci nota dikonfirmasi pusat.',
+        );
+      } else {
+        showNotice('Perubahan kunci tersimpan di perangkat. Menunggu dikirim ke pusat.');
+      }
+      return null;
+    } catch {
+      return 'Gagal menyimpan perubahan kunci di perangkat ini.';
+    } finally {
+      setSaving(false);
+    }
+  }
+
   async function handleSetupSync() {
     setSetupError('');
     const ok = await runSync();
@@ -512,7 +572,7 @@ export default function App() {
     headerActions = referenceAddButton('Tambah jasa');
   } else if (PAGE_LABELS[page]) {
     headerActions = referenceAddButton(`Tambah ${PAGE_LABELS[page]}`);
-  } else if (page === 'profil apotek') {
+  } else if (page === 'profil apotek' || page === 'penjualan') {
     headerActions = null;
   } else {
     headerActions = (
@@ -565,6 +625,7 @@ export default function App() {
       page={page}
       onNavigate={setPage}
       enabledPages={[
+        'penjualan',
         'barang',
         'jasa',
         'petugas',
@@ -583,6 +644,26 @@ export default function App() {
       notice={notice}
       headerActions={headerActions}
     >
+      {page === 'penjualan' && (
+        <SalesPage
+          sales={sales}
+          items={items}
+          outbox={outbox}
+          paymentMethods={references.payment_method}
+          doctors={references.doctor}
+          pharmacy={pharmacy}
+          isAdmin={session.staff.role === 'admin'}
+          saving={saving}
+          onSave={handleSaleSave}
+          onLock={handleSaleLock}
+          onDiscard={async (operationId) => {
+            await discardOperation(operationId);
+            await refreshLocal();
+            showNotice('Nota yang ditahan sudah dibuang dari perangkat ini.');
+          }}
+        />
+      )}
+
       {page === 'petugas' && (
         <PetugasPage
           isAdmin={session.staff.role === 'admin'}

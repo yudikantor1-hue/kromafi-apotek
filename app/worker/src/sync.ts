@@ -3,7 +3,7 @@ import type { D1Database } from './env';
 import { ADAPTERS, type EntityAdapter, type SyncEntity } from './entities';
 import { apiError, isIsoTimestamp, json, nowIso, readJson } from './http';
 import type { ItemWire } from './items';
-import { findSale, insertSale, setSaleLock, validateSalePayload } from './sales';
+import { findSale, insertSale, setSaleLock, updateSale, validateSalePayload } from './sales';
 
 const CLOCK_SKEW_MS = 5 * 60 * 1000;
 const MAX_BATCH = 50;
@@ -692,7 +692,18 @@ async function applySale(
       return { ...base, status: 'rejected', message: 'not_found' };
     }
 
-    const locked = (operation.payload as { locked?: unknown } | null)?.locked;
+    if (operation.baseVersion !== existing.version) {
+      await recordAudit(db, 'sale', author.id, deviceId, operation, 'conflict', serverTime, existing, operation.payload, note('stale_edit'), existing.version);
+      return { ...base, status: 'conflict', message: 'stale_edit', record: existing };
+    }
+
+    // An edit carries the nota's lines; a lock change carries only `locked`.
+    const payload = (operation.payload ?? {}) as Record<string, unknown>;
+    if (Array.isArray(payload.items)) {
+      return applySaleEdit(db, author, pushedById, deviceId, operation, existing, serverTime);
+    }
+
+    const locked = payload.locked;
     if (typeof locked !== 'boolean') {
       await recordAudit(db, 'sale', author.id, deviceId, operation, 'rejected', serverTime, existing, operation.payload, note('validation'), null);
       return { ...base, status: 'rejected', message: 'validation' };
@@ -700,10 +711,6 @@ async function applySale(
     if (!locked && author.role !== 'admin') {
       await recordAudit(db, 'sale', author.id, deviceId, operation, 'rejected', serverTime, existing, operation.payload, note('forbidden'), null);
       return { ...base, status: 'rejected', message: 'forbidden' };
-    }
-    if (operation.baseVersion !== existing.version) {
-      await recordAudit(db, 'sale', author.id, deviceId, operation, 'conflict', serverTime, existing, operation.payload, note('stale_edit'), existing.version);
-      return { ...base, status: 'conflict', message: 'stale_edit', record: existing };
     }
 
     const updated = await setSaleLock(
@@ -752,6 +759,51 @@ async function applySale(
 
   await recordAudit(db, 'sale', author.id, deviceId, operation, 'applied', serverTime, null, inserted.sale, note('sale_created'), 1);
   return { ...base, status: 'applied', message: 'sale_created', record: inserted.sale, version: 1 };
+}
+
+/**
+ * A saved nota may still be corrected while it is unlocked: the lines are
+ * replaced and stock moves only by the difference (10.2.30).
+ */
+async function applySaleEdit(
+  db: D1Database,
+  author: OperationAuthor,
+  pushedById: string,
+  deviceId: string,
+  operation: SaleOperationInput,
+  existing: Awaited<ReturnType<typeof findSale>> & object,
+  serverTime: string,
+): Promise<SyncResult> {
+  const base = { operationId: operation.operationId, itemId: operation.itemId };
+  const note = (value: string) => withPusher(value, author.id, pushedById);
+
+  if (existing.locked) {
+    await recordAudit(db, 'sale', author.id, deviceId, operation, 'rejected', serverTime, existing, operation.payload, note('locked'), existing.version);
+    return { ...base, status: 'rejected', message: 'locked' };
+  }
+
+  const validated = validateSalePayload(operation.payload);
+  if (!validated.ok) {
+    await recordAudit(db, 'sale', author.id, deviceId, operation, 'rejected', serverTime, existing, operation.payload, note(validated.message), null);
+    return { ...base, status: 'rejected', message: 'validation' };
+  }
+
+  const updated = await updateSale(db, {
+    id: operation.itemId,
+    fields: validated.value,
+    deviceTime: operation.deviceTime,
+    serverTime,
+    staffId: author.id,
+    version: existing.version + 1,
+  });
+
+  if (!updated.ok) {
+    await recordAudit(db, 'sale', author.id, deviceId, operation, 'rejected', serverTime, existing, operation.payload, note(updated.message), null);
+    return { ...base, status: 'rejected', message: updated.message, record: existing };
+  }
+
+  await recordAudit(db, 'sale', author.id, deviceId, operation, 'applied', serverTime, existing, updated.sale, note('sale_edited'), updated.sale.version);
+  return { ...base, status: 'applied', message: 'sale_edited', record: updated.sale, version: updated.sale.version };
 }
 
 export async function handlePush(request: Request, db: D1Database, staff: SessionStaff): Promise<Response> {

@@ -156,7 +156,7 @@ Goal: deliver the approved reference-data, goods-receipt, and cashier workflows 
 
 ### 4.3 Sales
 
-- **4.3.1** Build sales with item/service lines, approved pricing/discount/payment rules, stock checks, locking, and receipt output sized for the 58 mm thermal printer chosen in 10.2.3. — **25%** (the server applies a nota with its lines, stock decrement, stock movement, and lock, and serves history by cursor — migration `0010_sales.sql`, `worker/src/sales.ts`, six new tests; the Penjualan screen, form, and 58 mm receipt are next)
+- **4.3.1** Build sales with item/service lines, approved pricing/discount/payment rules, stock checks, locking, and receipt output sized for the 58 mm thermal printer chosen in 10.2.3. — **75%** (the server and the Penjualan screen are built: a nota is created or corrected with its stock movements, locked, listed newest first, and printed on a 58 mm receipt; nine server tests cover it. The live site still runs the previous bundle until the next deploy, and deleting a saved nota waits for 10.2.31.)
 
 ### 4.4 Consistency
 
@@ -586,9 +586,9 @@ These are not blockers for an unrelated first slice. Resolve each before impleme
 
 - **10.2.30 — How should an already-saved nota be edited?**
   - Why: the approved prototype lets a cashier edit an unlocked nota, but a saved nota has already moved stock and already has lines in D1, so editing it means adjusting stock and replacing lines without losing history.
-  - Owner: client. State: **Open**.
-  - Options: (a) replace the nota and post an adjustment movement for the stock difference; (b) cancel the old nota and create a correction nota; (c) keep a saved nota read-only and require a new nota.
-  - Note: creating, locking, printing, and viewing a nota are built on the server; editing waits for this answer.
+  - Owner: client. State: **Settled — option (a)**.
+  - Answer: the nota is replaced and the stock difference is posted as its own movement. The nota keeps one identity and one history: its lines are replaced, `items.stok` moves only by the difference, and `stock_movements` records that difference (`sale` when units leave, `koreksi` when they come back). A locked nota cannot be edited; unlocking stays an admin action (10.2.26 scope).
+  - Note: creating, editing, locking, printing, and viewing a nota are now built end to end; deleting a saved nota is still open (10.2.31).
 
 - **10.2.31 — May an unlocked nota be deleted?**
   - Why: the prototype deletes an unlocked nota, but a sale has already reduced stock and left audit rows, so deleting it must either restore stock or keep the nota as cancelled.

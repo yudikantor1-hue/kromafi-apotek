@@ -3,6 +3,7 @@ import type {
   OutboxOperation,
   PharmacyProfile,
   Reference,
+  Sale,
   Staff,
   SyncResult,
 } from '../types';
@@ -64,17 +65,24 @@ export const api = {
 
   me: () => request<{ staff: Staff; serverTime: string }>('/api/me'),
 
-  snapshot: () =>
-    request<{
+  /** `salesSince` carries new notas; `salesBefore` fills older history (10.2.28). */
+  snapshot: (salesSince?: string, salesBefore?: string) => {
+    const params = new URLSearchParams();
+    if (salesSince) params.set('salesSince', salesSince);
+    if (salesBefore) params.set('salesBefore', salesBefore);
+    const query = params.toString();
+    return request<{
       items: Item[];
       cabinets: Reference[];
       paymentMethods: Reference[];
       doctors: Reference[];
       suppliers: Reference[];
       settings: PharmacyProfile | null;
+      sales: Sale[];
       cursor: string;
       serverTime: string;
-    }>('/api/sync/snapshot'),
+    }>(`/api/sync/snapshot${query ? `?${query}` : ''}`);
+  },
 
   push: (deviceId: string, operations: OutboxOperation[]) =>
     request<{ results: SyncResult[]; serverTime: string; cursor: string }>('/api/sync/push', {

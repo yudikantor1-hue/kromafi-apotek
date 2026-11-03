@@ -432,20 +432,38 @@ export async function findSale(db: D1Database, id: string): Promise<SaleWire | n
 }
 
 /**
- * Newest notas first for the device history page. `since` carries the newest
- * `server_updated_at` the device already holds, so a sync reads only what
- * changed instead of the whole history (10.2.28).
+ * `since` carries the newest `server_updated_at` the device already holds, so a
+ * sync reads only what changed (10.2.28). `before` fills older history: the
+ * device asks for the page that precedes the oldest nota it keeps, so the first
+ * load shows today's notas and older ones arrive gradually.
  */
-export async function loadSalesPage(db: D1Database, since: string, limit = SALES_PAGE_SIZE): Promise<SaleWire[]> {
+export async function loadSalesPage(
+  db: D1Database,
+  since: string,
+  limit = SALES_PAGE_SIZE,
+  before = '',
+): Promise<SaleWire[]> {
   const pageSize = Math.min(Math.max(Math.trunc(limit) || SALES_PAGE_SIZE, 1), SALES_PAGE_SIZE);
-  const statement = since
-    ? db
-        .prepare(
-          `SELECT * FROM sales WHERE server_updated_at > ?
-            ORDER BY server_updated_at ASC, id ASC LIMIT ?`,
-        )
-        .bind(since, pageSize)
-    : db.prepare('SELECT * FROM sales ORDER BY server_updated_at ASC, id ASC LIMIT ?').bind(pageSize);
+  let statement: D1PreparedStatement;
+  if (since) {
+    statement = db
+      .prepare(
+        `SELECT * FROM sales WHERE server_updated_at > ?
+          ORDER BY server_updated_at ASC, id ASC LIMIT ?`,
+      )
+      .bind(since, pageSize);
+  } else if (before) {
+    statement = db
+      .prepare(
+        `SELECT * FROM sales WHERE server_updated_at < ?
+          ORDER BY server_updated_at DESC, id DESC LIMIT ?`,
+      )
+      .bind(before, pageSize);
+  } else {
+    statement = db
+      .prepare('SELECT * FROM sales ORDER BY server_updated_at DESC, id DESC LIMIT ?')
+      .bind(pageSize);
+  }
 
   const { results } = await statement.all<SaleRow>();
   if (results.length === 0) return [];
@@ -467,11 +485,173 @@ export async function loadSalesPage(db: D1Database, since: string, limit = SALES
   return results.map((row) => saleRowToWire(row, linesBySale.get(row.id) ?? []));
 }
 
+export type UpdateSaleResult = { ok: true; sale: SaleWire } | { ok: false; message: string };
+
+/**
+ * An edit replaces the nota's lines and moves stock only by the difference, so
+ * the stock ledger stays one continuous history instead of a rewritten one
+ * (10.2.30). A locked nota is refused here as well as in the sync layer.
+ */
+export async function updateSale(
+  db: D1Database,
+  input: {
+    id: string;
+    fields: SaleFields;
+    deviceTime: string;
+    serverTime: string;
+    staffId: string;
+    version: number;
+  },
+): Promise<UpdateSaleResult> {
+  const existing = await findSale(db, input.id);
+  if (!existing) return { ok: false, message: 'not_found' };
+  if (existing.locked) return { ok: false, message: 'locked' };
+
+  const { fields } = input;
+  const method = await db
+    .prepare(`SELECT id FROM payment_methods WHERE nama = ? COLLATE NOCASE AND status = 'Aktif'`)
+    .bind(fields.metodePembayaran)
+    .first<{ id: string }>();
+  if (!method) return { ok: false, message: 'unknown_payment_method' };
+
+  // How many units of each item the nota took before this edit.
+  const before = new Map<string, number>();
+  for (const line of existing.lines) {
+    if (line.jenis !== 'barang') continue;
+    before.set(line.itemId, (before.get(line.itemId) ?? 0) + line.jumlah);
+  }
+
+  const after = new Map<string, number>();
+  const lines: SaleLineWire[] = [];
+
+  for (const line of fields.lines) {
+    const item = await db
+      .prepare('SELECT id, type, stok FROM items WHERE id = ?')
+      .bind(line.itemId)
+      .first<{ id: string; type: string | null; stok: number }>();
+    if (!item) return { ok: false, message: 'unknown_item' };
+
+    const jenis: 'barang' | 'jasa' = item.type === 'jasa' ? 'jasa' : 'barang';
+    const stored = { ...line, jenis, batch: jenis === 'jasa' ? '' : line.batch };
+    lines.push({ id: crypto.randomUUID(), ...stored });
+    if (jenis === 'barang') after.set(stored.itemId, (after.get(stored.itemId) ?? 0) + stored.jumlah);
+  }
+
+  const statements: D1PreparedStatement[] = [
+    db.prepare('DELETE FROM sale_lines WHERE sale_id = ?').bind(input.id),
+  ];
+
+  for (const line of lines) {
+    statements.push(
+      db
+        .prepare(
+          `INSERT INTO sale_lines
+             (id, sale_id, item_id, jenis, nama, satuan, harga_jual, jumlah, diskon_tagihan,
+              tagihan, tagihan_final, harga_jual_final, batch)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        )
+        .bind(
+          line.id,
+          input.id,
+          line.itemId,
+          line.jenis,
+          line.nama,
+          line.satuan,
+          line.hargaJual,
+          line.jumlah,
+          line.diskonTagihan,
+          line.tagihan,
+          line.tagihanFinal,
+          line.hargaJualFinal,
+          line.batch,
+        ),
+    );
+  }
+
+  for (const itemId of new Set([...before.keys(), ...after.keys()])) {
+    const difference = (after.get(itemId) ?? 0) - (before.get(itemId) ?? 0);
+    if (difference === 0) continue;
+
+    const item = await db
+      .prepare('SELECT id, stok FROM items WHERE id = ?')
+      .bind(itemId)
+      .first<{ id: string; stok: number }>();
+    // An item removed from the catalogue keeps its old ledger rows untouched.
+    if (!item) continue;
+
+    const nextStock = Number(item.stok) - difference;
+    statements.push(
+      db
+        .prepare('UPDATE items SET stok = ?, server_updated_at = ? WHERE id = ?')
+        .bind(nextStock, input.serverTime, itemId),
+    );
+    statements.push(
+      db
+        .prepare(
+          `INSERT INTO stock_movements
+             (id, item_id, sale_id, jenis, jumlah, stok_setelah, device_time, server_time, created_at, created_by)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        )
+        .bind(
+          crypto.randomUUID(),
+          itemId,
+          input.id,
+          // More units leave the shelf on an edit; fewer come back.
+          difference > 0 ? 'sale' : 'koreksi',
+          difference,
+          nextStock,
+          input.deviceTime,
+          input.serverTime,
+          input.serverTime,
+          input.staffId,
+        ),
+    );
+  }
+
+  statements.push(
+    db
+      .prepare(
+        `UPDATE sales
+            SET total_tagihan = ?, diskon_total_tagihan = ?, total_tagihan_final = ?,
+                metode_pembayaran = ?, bayar = ?, nama_pasien = ?, nama_dokter = ?, catatan = ?,
+                version = ?, device_updated_at = ?, server_updated_at = ?, updated_by = ?
+          WHERE id = ?`,
+      )
+      .bind(
+        fields.totalTagihan,
+        fields.diskonTotalTagihan,
+        fields.totalTagihanFinal,
+        fields.metodePembayaran,
+        fields.bayar,
+        fields.namaPasien,
+        fields.namaDokter,
+        fields.catatan,
+        input.version,
+        input.deviceTime,
+        input.serverTime,
+        input.staffId,
+        input.id,
+      ),
+  );
+
+  await runAll(db, statements);
+
+  const sale = await findSale(db, input.id);
+  if (!sale) return { ok: false, message: 'internal_error' };
+  return { ok: true, sale };
+}
+
 export async function handleSalesPage(request: Request, db: D1Database, staff: SessionStaff): Promise<Response> {
   if (staff.role !== 'admin' && staff.role !== 'staf') return apiError(403, 'forbidden');
   const url = new URL(request.url);
   const since = (url.searchParams.get('since') ?? '').trim();
+  const before = (url.searchParams.get('before') ?? '').trim();
   const limit = Number(url.searchParams.get('limit') ?? SALES_PAGE_SIZE);
-  const sales = await loadSalesPage(db, isIsoTimestamp(since) ? since : '', limit);
+  const sales = await loadSalesPage(
+    db,
+    isIsoTimestamp(since) ? since : '',
+    limit,
+    isIsoTimestamp(before) ? before : '',
+  );
   return json({ sales, serverTime: nowIso() });
 }

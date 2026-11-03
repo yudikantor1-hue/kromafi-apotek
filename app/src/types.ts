@@ -96,7 +96,7 @@ export interface VisiblePharmacy extends PharmacyProfile {
   pendingOperationId?: string;
 }
 
-export type SyncEntity = 'item' | ReferenceEntity | 'settings';
+export type SyncEntity = 'item' | ReferenceEntity | 'settings' | 'sale';
 
 /** `cancelled` means the center refused the work for good; it is never resent. */
 export type OperationStatus = 'pending' | 'held' | 'cancelled';
@@ -118,7 +118,9 @@ interface OutboxBase {
 export type OutboxOperation =
   | (OutboxBase & { entity: 'item'; payload: ItemPayload })
   | (OutboxBase & { entity: ReferenceEntity; payload: ReferencePayload })
-  | (OutboxBase & { entity: 'settings'; payload: PharmacyPayload });
+  | (OutboxBase & { entity: 'settings'; payload: PharmacyPayload })
+  // A nota travels as a single operation: its header and every line together.
+  | (OutboxBase & { entity: 'sale'; payload: SalePayload | SaleLockPayload });
 
 export type SyncStatus = 'applied' | 'duplicate' | 'conflict' | 'rejected' | 'cancelled';
 
@@ -136,6 +138,79 @@ export interface Session {
   staff: Pick<Staff, 'id' | 'name' | 'username' | 'role'>;
   mode: 'online' | 'offline';
   signedInAt: string;
+}
+
+/** A nota line, copied from the catalogue when the cashier rang it up (10.1.14). */
+export interface SaleLine {
+  id: string;
+  itemId: string;
+  jenis: ItemType;
+  nama: string;
+  satuan: string;
+  hargaJual: number;
+  jumlah: number;
+  diskonTagihan: number;
+  tagihan: number;
+  tagihanFinal: number;
+  /** What the pharmacy kept per unit after both discounts (10.2.24). */
+  hargaJualFinal: number;
+  batch: string;
+}
+
+/** What a device sends for one line; the server recomputes every amount. */
+export interface SalePayloadLine {
+  itemId: string;
+  jenis: ItemType;
+  nama: string;
+  satuan: string;
+  hargaJual: number;
+  jumlah: number;
+  diskonTagihan: number;
+  batch: string;
+}
+
+export interface SalePayload {
+  tanggal: string;
+  waktu: string;
+  metodePembayaran: string;
+  bayar: number;
+  diskonTotal: number;
+  namaPasien: string;
+  namaDokter: string;
+  catatan: string;
+  items: SalePayloadLine[];
+}
+
+export interface Sale {
+  id: string;
+  tanggal: string;
+  waktu: string;
+  totalTagihan: number;
+  diskonTotalTagihan: number;
+  totalTagihanFinal: number;
+  metodePembayaran: string;
+  bayar: number;
+  namaPasien: string;
+  namaDokter: string;
+  namaPetugas: string;
+  catatan: string;
+  locked: boolean;
+  version: number;
+  updatedAt: string;
+  serverUpdatedAt: string;
+  lines: SaleLine[];
+}
+
+/** A confirmed nota with an unsynchronized local save layered on top. */
+export interface VisibleSale extends Sale {
+  pending?: boolean;
+  pendingOperationId?: string;
+  pendingAction?: 'create' | 'update';
+}
+
+/** A lock change carries no lines, so it never rewrites the nota itself. */
+export interface SaleLockPayload {
+  locked: boolean;
 }
 
 export interface LocalCredential {

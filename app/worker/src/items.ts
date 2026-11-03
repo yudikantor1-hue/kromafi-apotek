@@ -1,9 +1,9 @@
 import type { SessionStaff } from './auth';
 import { can } from './permissions';
 import type { D1Database } from './env';
-import { apiError, json, nowIso } from './http';
+import { apiError, isIsoTimestamp, json, nowIso } from './http';
 import { loadReferenceBundle } from './reference';
-import { loadSalesPage } from './sales';
+import { SALES_PAGE_SIZE, loadSalesPage } from './sales';
 
 export const ITEM_STATUSES = ['Aktif', 'Tidak aktif'] as const;
 export type ItemStatus = (typeof ITEM_STATUSES)[number];
@@ -135,12 +135,19 @@ export async function handleSnapshot(request: Request, db: D1Database, staff: Se
   const serverTime = nowIso();
   const reference = await loadReferenceBundle(db);
   // Only notas newer than the device cursor travel here; older history arrives
-  // page by page (10.2.28), so a sync never reads the whole sales history.
-  const salesSince = (new URL(request.url).searchParams.get('salesSince') ?? '').trim();
+  // one page at a time, asked for with `salesBefore` (10.2.28).
+  const params = new URL(request.url).searchParams;
+  const salesSince = (params.get('salesSince') ?? '').trim();
+  const salesBefore = (params.get('salesBefore') ?? '').trim();
   return json({
     items: await loadItems(db),
     ...reference,
-    sales: await loadSalesPage(db, salesSince),
+    sales: await loadSalesPage(
+      db,
+      isIsoTimestamp(salesSince) ? salesSince : '',
+      SALES_PAGE_SIZE,
+      isIsoTimestamp(salesBefore) ? salesBefore : '',
+    ),
     cursor: serverTime,
     serverTime,
     staff,
