@@ -572,7 +572,9 @@ export default function App() {
     headerActions = referenceAddButton('Tambah jasa');
   } else if (PAGE_LABELS[page]) {
     headerActions = referenceAddButton(`Tambah ${PAGE_LABELS[page]}`);
-  } else if (page === 'profil apotek' || page === 'penjualan') {
+  } else if (page === 'penjualan') {
+    headerActions = referenceAddButton('Tambah penjualan');
+  } else if (page === 'profil apotek') {
     headerActions = null;
   } else {
     headerActions = (
@@ -654,6 +656,7 @@ export default function App() {
           pharmacy={pharmacy}
           isAdmin={session.staff.role === 'admin'}
           saving={saving}
+          addSignal={addSignal}
           onSave={handleSaleSave}
           onLock={handleSaleLock}
           onDiscard={async (operationId) => {
