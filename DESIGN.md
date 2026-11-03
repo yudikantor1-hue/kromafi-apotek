@@ -51,7 +51,7 @@ Cloudflare D1 (authoritative shared database)
 - On reconnection, the client sends queued operations safely with retries. The Worker rechecks current authentication, permissions, and domain rules, deduplicates retries, and returns canonical server results.
 - Queued operations are synchronized in dependency order so that offline-created reference records exist before documents that use them.
 - Pending documents use stable provisional device-generated IDs; official numbering and receipt treatment for an offline sale must be agreed before release.
-- Operations that are stale, invalid, unauthorized, or conflicting are retained and shown as actionable failures; they are never silently discarded or overwritten. Resolution is domain-specific and preserves an audit trail.
+- Operations that are stale, invalid, unauthorized, or conflicting are retained and shown as actionable failures; they are never silently discarded or overwritten. Resolution is domain-specific and preserves an audit trail. The one exception is work the server refuses for good because the account that recorded it was deactivated (10.2.13): the device removes it without notice, and the server ledger is the only remaining record.
 - Server-confirmed operations update the local cache. Pending operations must survive app reloads; the UI warns before any action that could erase unsynchronized data.
 - Device loss or browser storage deletion can destroy work that has not reached D1; the app must warn clearly and the operational recovery policy must be agreed before release.
 - Offline mode requires a prior successful app load and local data bootstrap. It cannot provide immediate account revocation, shared real-time data, or server confirmation while disconnected.

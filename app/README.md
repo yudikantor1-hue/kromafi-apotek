@@ -101,7 +101,7 @@ where `workerd` cannot run:
 ## Checks
 
 ```bash
-npm test        # Worker API + offline logic (45 tests)
+npm test        # Worker API + offline logic (59 tests)
 npm run typecheck
 npm run build   # production PWA build into dist/
 ```

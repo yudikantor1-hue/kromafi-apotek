@@ -71,7 +71,7 @@ is provisioned yet (tracked as P1 in [PLAN.md](PLAN.md)).
 
 - **`meta`** — key/value: `deviceId`, current `session`, `lastSyncAt`, `cursor`, `offlineUsername`. Access: local only; cleared only by explicit device reset.
 - **`items`** — last server-confirmed item snapshot, keyed by `id`. Never holds pending edits.
-- **`outbox`** — queued operations keyed by `operationId`, index `itemId`. Fields: `action`, `itemId`, `authorId` (account that recorded the change), `baseVersion`, `deviceTime`, `payload`, `queuedAt`, `status` (`pending`/`held`/`cancelled`), `message`. Survives reloads; a held operation stays visible until it is corrected and re-sent or discarded, and a cancelled operation stays visible as **Dibatalkan** but is never sent again.
+- **`outbox`** — queued operations keyed by `operationId`, index `itemId`. Fields: `action`, `itemId`, `authorId` (account that recorded the change), `baseVersion`, `deviceTime`, `payload`, `queuedAt`, `status` (`pending`/`held`/`cancelled`), `message`. Survives reloads; a held operation stays visible until it is corrected and re-sent or discarded, and a `cancelled` operation (work the centre has refused for good, such as work recorded by an account that was deactivated before it arrived) is deleted by the device without notice and never sent again, so it survives only in the server ledger (10.2.13).
 - **`credentials`** — one local credential per staff username: `username`, `staffId`, `name`, `role`, `hash`, `salt`, `iterations`, `provisionedAt`. Derived on the device from the password at online sign-in; the server hash is never copied to the device.
 
 Business records written by the first slice are limited to `items` and `audit_events`; sales, invoices,
