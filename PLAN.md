@@ -470,6 +470,12 @@ These are not blockers for an unrelated first slice. Resolve each before impleme
   - Recorded answer: a **6-digit numeric PIN**, valid for **24 hours**, usable **once**, shown to the admin exactly once at creation and printable on paper. Signing in with the PIN does not open the app: it opens a mandatory screen where the staff member sets their own password (at least 8 characters), and only then is the session usable. The PIN is stored as a salted hash like the recovery codes, a deactivated account cannot use it, and issuing a new PIN invalidates the previous one.
   - Implemented in 3.8 (worker/src/pin.ts, the login PIN branch, and the forced password screen).
 
+- **10.2.11 — What should the single "Edit" button on a staff member's own account detail do?**
+  - Why: the client asked for exactly one button on the own account detail, and said a name and username must not change, while the server refuses to let anyone change their own role or status. That leaves only a self-service password change, but the client has not confirmed it.
+  - Owner: client. State: **Answered**.
+  - Recorded answer (3 November 2026): the client approved the outcomes list for the Petugas fixes, which stated this behaviour, so the button changes the staff member's own password. Any change of role and status stays with an admin and is refused for one's own account.
+  - Implemented: the button opens a form that shows the name and username as read-only text and lets the staff member set a new password of at least 8 characters.
+
 ### 10.3 Decisions already settled — do not ask again
 
 - **10.3.1** The product is a PWA for one pharmacy, used by multiple staff on multiple devices.

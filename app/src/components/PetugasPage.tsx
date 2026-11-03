@@ -1,12 +1,14 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { api, type StaffAccount, type StaffInput } from '../lib/api';
-import { IconBack, IconClose, IconEdit } from './Icons';
+import { IconBack, IconClose } from './Icons';
 
 const ERROR_MESSAGES: Record<string, string> = {
   username_taken: 'Username sudah dipakai akun lain.',
+  identity_locked: 'Nama dan username tidak dapat diubah setelah akun dibuat.',
   cannot_change_self: 'Anda tidak bisa mengubah peran atau status akun sendiri.',
   last_admin: 'Minimal harus ada satu admin aktif. Buat admin lain dulu.',
   validation: 'Data tidak lengkap atau tidak valid.',
+  invalid_password: 'Password minimal 8 karakter.',
   account_inactive: 'Akun ini tidak aktif.',
   not_found: 'Akun tidak ditemukan.',
   forbidden: 'Hanya admin yang dapat mengubah akun.',
@@ -31,6 +33,8 @@ interface PetugasPageProps {
   addSignal: number;
 }
 
+type PasswordMode = 'self' | 'reset';
+
 export function PetugasPage({ isAdmin, selfId, addSignal }: PetugasPageProps) {
   const [rows, setRows] = useState<StaffAccount[]>([]);
   const [loading, setLoading] = useState(true);
@@ -39,22 +43,21 @@ export function PetugasPage({ isAdmin, selfId, addSignal }: PetugasPageProps) {
 
   const [detailId, setDetailId] = useState<string | null>(null);
   const [formOpen, setFormOpen] = useState(false);
-  const [editingId, setEditingId] = useState<string | null>(null);
   const [form, setForm] = useState<FormState>(EMPTY_FORM);
   const [formError, setFormError] = useState('');
   const [saving, setSaving] = useState(false);
   const [pinFor, setPinFor] = useState<{ name: string; username: string; pin: string; expiresAt: string } | null>(null);
-  const [pinBusy, setPinBusy] = useState(false);
+  const [statusBusy, setStatusBusy] = useState(false);
 
-  const [resetOpen, setResetOpen] = useState(false);
-  const [resetPassword, setResetPassword] = useState('');
-  const [resetRepeat, setResetRepeat] = useState('');
-  const [resetError, setResetError] = useState('');
-  const [resetDone, setResetDone] = useState(false);
-  const [recoveryCodes, setRecoveryCodes] = useState<string[] | null>(null);
-  const [recoveryFor, setRecoveryFor] = useState<{ id: string; name: string; username: string } | null>(null);
-  const [recoveryBusy, setRecoveryBusy] = useState(false);
-  const [recoveryError, setRecoveryError] = useState('');
+  const [passwordMode, setPasswordMode] = useState<PasswordMode | null>(null);
+  const [password, setPassword] = useState('');
+  const [passwordRepeat, setPasswordRepeat] = useState('');
+  const [passwordError, setPasswordError] = useState('');
+  const [passwordDone, setPasswordDone] = useState(false);
+
+  // The header "Tambah Petugas" button lives in the shell. The signal is compared
+  // against its mount value so simply opening the menu never opens the form.
+  const handledSignal = useRef(addSignal);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -73,15 +76,18 @@ export function PetugasPage({ isAdmin, selfId, addSignal }: PetugasPageProps) {
     void load();
   }, [load]);
 
-  // The header "Tambah Petugas" button lives in the shell; this signal opens
-  // the form without lifting the screen's form state into App.
   useEffect(() => {
-    if (addSignal > 0 && isAdmin) openForm(null);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [addSignal]);
+    if (addSignal === handledSignal.current) return;
+    handledSignal.current = addSignal;
+    if (!isAdmin) return;
+    setForm({ ...EMPTY_FORM });
+    setFormError('');
+    setDetailId(null);
+    setFormOpen(true);
+  }, [addSignal, isAdmin]);
 
   const detail = detailId ? rows.find((row) => row.id === detailId) ?? null : null;
-  const editing = editingId ? rows.find((row) => row.id === editingId) ?? null : null;
+  const isSelf = detail?.id === selfId;
 
   const visible = rows.filter((row) => {
     if (filter === 'aktif') return row.status === 'Aktif';
@@ -89,23 +95,18 @@ export function PetugasPage({ isAdmin, selfId, addSignal }: PetugasPageProps) {
     return true;
   });
 
-  function openForm(target: StaffAccount | null) {
-    setEditingId(target?.id ?? null);
-    setForm(
-      target
-        ? { name: target.name, username: target.username, role: target.role, status: target.status }
-        : { ...EMPTY_FORM },
-    );
-    setFormError('');
-    setDetailId(null);
-    setFormOpen(true);
-  }
-
   function closeForm() {
     setFormOpen(false);
-    setEditingId(null);
     setFormError('');
     setForm({ ...EMPTY_FORM });
+  }
+
+  function openPassword(mode: PasswordMode) {
+    setPassword('');
+    setPasswordRepeat('');
+    setPasswordError('');
+    setPasswordDone(false);
+    setPasswordMode(mode);
   }
 
   async function submitForm(event: React.FormEvent) {
@@ -122,26 +123,18 @@ export function PetugasPage({ isAdmin, selfId, addSignal }: PetugasPageProps) {
 
     setSaving(true);
     try {
-      if (editing) {
-        const result = await api.updateStaff(editing.id, input);
-        if (!result.ok) {
-          setFormError(ERROR_MESSAGES[result.error ?? 'validation'] ?? 'Perubahan tidak dapat disimpan.');
-          return;
-        }
-      } else {
-        const result = await api.createStaff(input);
-        if (!result.ok || !result.data) {
-          setFormError(ERROR_MESSAGES[result.error ?? 'validation'] ?? 'Akun tidak dapat dibuat.');
-          return;
-        }
-        // The PIN is shown exactly once, so the admin must record it now.
-        setPinFor({
-          name: result.data.staff?.name ?? name,
-          username: result.data.staff?.username ?? username,
-          pin: result.data.pin,
-          expiresAt: result.data.pinExpiresAt,
-        });
+      const result = await api.createStaff(input);
+      if (!result.ok || !result.data) {
+        setFormError(ERROR_MESSAGES[result.error ?? 'validation'] ?? 'Akun tidak dapat dibuat.');
+        return;
       }
+      // The PIN is shown exactly once, so the admin must record it now.
+      setPinFor({
+        name: result.data.staff?.name ?? name,
+        username: result.data.staff?.username ?? username,
+        pin: result.data.pin,
+        expiresAt: result.data.pinExpiresAt,
+      });
       await load();
       closeForm();
     } finally {
@@ -149,21 +142,45 @@ export function PetugasPage({ isAdmin, selfId, addSignal }: PetugasPageProps) {
     }
   }
 
-  async function submitReset(event: React.FormEvent) {
+  async function toggleStatus() {
+    if (!detail || isSelf) return;
+    setStatusBusy(true);
+    setError('');
+    try {
+      const result = await api.updateStaff(detail.id, {
+        name: detail.name,
+        username: detail.username,
+        role: detail.role,
+        status: detail.status === 'Aktif' ? 'Tidak aktif' : 'Aktif',
+      });
+      if (!result.ok) {
+        setError(ERROR_MESSAGES[result.error ?? 'validation'] ?? 'Status akun tidak dapat diubah.');
+        return;
+      }
+      await load();
+    } finally {
+      setStatusBusy(false);
+    }
+  }
+
+  async function submitPassword(event: React.FormEvent) {
     event.preventDefault();
-    setResetError('');
-    if (resetPassword.length < 8) return setResetError('Password minimal 8 karakter.');
-    if (resetPassword !== resetRepeat) return setResetError('Password tidak sama.');
-    if (!detail) return;
+    setPasswordError('');
+    if (password.length < 8) return setPasswordError('Password minimal 8 karakter.');
+    if (password !== passwordRepeat) return setPasswordError('Password tidak sama.');
+    if (!detail || !passwordMode) return;
 
     setSaving(true);
     try {
-      const result = await api.resetStaffPassword(detail.id, resetPassword);
+      const result =
+        passwordMode === 'self'
+          ? await api.setOwnPassword(password)
+          : await api.resetStaffPassword(detail.id, password);
       if (!result.ok) {
-        setResetError(ERROR_MESSAGES[result.error ?? 'validation'] ?? 'Password tidak dapat diubah.');
+        setPasswordError(ERROR_MESSAGES[result.error ?? 'validation'] ?? 'Password tidak dapat disimpan.');
         return;
       }
-      setResetDone(true);
+      setPasswordDone(true);
     } finally {
       setSaving(false);
     }
@@ -194,7 +211,7 @@ export function PetugasPage({ isAdmin, selfId, addSignal }: PetugasPageProps) {
         </section>
       ) : (
         <p className="notice notice-info" role="status">
-          Daftar petugas dapat dilihat semua staf. Hanya admin yang dapat menambah atau mengubah akun.
+          Anda hanya dapat melihat dan mengubah akun sendiri.
         </p>
       )}
 
@@ -220,7 +237,7 @@ export function PetugasPage({ isAdmin, selfId, addSignal }: PetugasPageProps) {
         </div>
       </section>
 
-      {detail && (
+      {detail && !formOpen && !passwordMode && (
         <div
           className="overlay"
           role="presentation"
@@ -234,143 +251,144 @@ export function PetugasPage({ isAdmin, selfId, addSignal }: PetugasPageProps) {
                 </button>
                 <h3 className="title" id="petugas-detail-title">{detail.name}</h3>
               </div>
-              {isAdmin && (
-                <button
-                  type="button"
-                  className="btn btn-secondary btn-icon"
-                  title="Edit petugas"
-                  aria-label="Edit petugas"
-                  onClick={() => openForm(detail)}
-                >
-                  <IconEdit size={18} />
-                </button>
-              )}
             </div>
             <div className="modal-body">
               <dl style={{ margin: 0 }}>
                 <div className="detail-row">
                   <dt>Nama petugas</dt>
-                  <dd>: {detail.name}</dd>
+                  <dd>{detail.name}</dd>
                 </div>
                 <div className="detail-row">
                   <dt>Username</dt>
-                  <dd style={{ wordBreak: 'break-all' }}>: {detail.username}</dd>
+                  <dd>{detail.username}</dd>
                 </div>
                 <div className="detail-row">
                   <dt>Role</dt>
-                  <dd>: {roleLabel(detail.role)}</dd>
+                  <dd>{roleLabel(detail.role)}</dd>
                 </div>
                 <div className="detail-row">
                   <dt>Status</dt>
-                  <dd>: {detail.status}</dd>
+                  <dd>{detail.status}</dd>
                 </div>
               </dl>
 
-              {recoveryError && (
-                <p className="notice notice-error" role="alert">
-                  {recoveryError}
-                </p>
-              )}
-
-              {isAdmin && (
-                <div className="modal-actions" style={{ justifyContent: 'space-between' }}>
-                  <button
-                    type="button"
-                    className="btn btn-quiet"
-                    onClick={() => {
-                      setResetPassword('');
-                      setResetRepeat('');
-                      setResetError('');
-                      setResetDone(false);
-                      setResetOpen(true);
-                    }}
-                  >
-                    Ganti password
+              <div className="modal-actions">
+                {isSelf ? (
+                  <button type="button" className="btn btn-primary" onClick={() => openPassword('self')}>
+                    Edit
                   </button>
-                  <button
-                    type="button"
-                    className="btn btn-secondary"
-                    disabled={pinBusy}
-                    onClick={async () => {
-                      setPinBusy(true);
-                      setRecoveryError('');
-                      const result = await api.staffPin(detail.id);
-                      setPinBusy(false);
-                      if (!result.ok || !result.data) {
-                        setRecoveryError('Tidak dapat membuat PIN baru. Coba lagi.');
-                        return;
-                      }
-                      setPinFor({
-                        name: detail.name,
-                        username: detail.username,
-                        pin: result.data.pin,
-                        expiresAt: result.data.expiresAt,
-                      });
-                    }}
-                  >
-                    {pinBusy ? 'Membuat...' : 'PIN sementara'}
-                  </button>
-                  <button
-                    type="button"
-                    className="btn btn-secondary"
-                    disabled={recoveryBusy}
-                    onClick={async () => {
-                      setRecoveryBusy(true);
-                      setRecoveryError('');
-                      const result = await api.staffRecoveryCodes(detail.id);
-                      setRecoveryBusy(false);
-                      if (!result.ok || !result.data) {
-                        setRecoveryError('Tidak dapat membuat kode pemulihan. Coba lagi.');
-                        return;
-                      }
-                      setRecoveryCodes(result.data.codes);
-                      setRecoveryFor({ id: detail.id, name: detail.name, username: detail.username });
-                    }}
-                  >
-                    {recoveryBusy ? 'Membuat...' : 'Kode pemulihan'}
-                  </button>
-                  <button type="button" className="btn btn-secondary" onClick={() => setDetailId(null)}>
-                    Tutup
-                  </button>
-                </div>
-              )}
+                ) : (
+                  <>
+                    <button type="button" className="btn btn-secondary" onClick={() => openPassword('reset')}>
+                      Reset password
+                    </button>
+                    <button
+                      type="button"
+                      className={`btn ${detail.status === 'Aktif' ? 'btn-danger' : 'btn-primary'}`}
+                      disabled={statusBusy}
+                      onClick={toggleStatus}
+                    >
+                      {statusBusy ? 'Menyimpan...' : detail.status === 'Aktif' ? 'Non-aktifkan' : 'Aktifkan'}
+                    </button>
+                  </>
+                )}
+              </div>
             </div>
           </div>
         </div>
       )}
 
-      {recoveryCodes && recoveryFor && (
+      {detail && passwordMode && (
         <div
           className="overlay"
           role="presentation"
-          onClick={(event) => event.target === event.currentTarget && setRecoveryCodes(null)}
+          onClick={(event) => event.target === event.currentTarget && setPasswordMode(null)}
         >
-          <div className="modal" role="dialog" aria-modal="true" aria-labelledby="recovery-title">
+          <div className="modal" role="dialog" aria-modal="true" aria-labelledby="petugas-password-title">
             <div className="modal-header">
-              <h3 className="title" id="recovery-title">
-                Kode pemulihan — {recoveryFor.name}
+              <h3 className="title" id="petugas-password-title">
+                {passwordMode === 'self' ? 'Edit akun' : `Reset password — ${detail.name}`}
               </h3>
-              <button type="button" className="icon-button" aria-label="Tutup" onClick={() => setRecoveryCodes(null)}>
-                &times;
+              <button type="button" className="icon-button" aria-label="Tutup" onClick={() => setPasswordMode(null)}>
+                <IconClose />
               </button>
             </div>
-            <div className="modal-body stack">
-              <p className="notice notice-warning" role="alert">
-                Catat atau cetak sekarang. Kode hanya ditampilkan sekali, dan setiap kode hanya bisa dipakai
-                satu kali. Serahkan ke {recoveryFor.username}, bukan kepada orang lain.
-              </p>
-              <ul className="stack">
-                {recoveryCodes.map((code) => (
-                  <li key={code}>
-                    <code>{code}</code>
-                  </li>
-                ))}
-              </ul>
-              <div className="modal-actions">
-                <button type="button" className="btn btn-primary" onClick={() => setRecoveryCodes(null)}>
-                  Selesai
-                </button>
-              </div>
+            <div className="modal-body">
+              {passwordDone ? (
+                <>
+                  <p className="notice notice-info" role="status">
+                    {passwordMode === 'self'
+                      ? 'Password Anda sudah diganti. Gunakan password baru pada saat masuk berikutnya.'
+                      : 'Password sudah diganti. Semua sesi akun ini berakhir, jadi petugas harus masuk kembali dengan password baru.'}
+                  </p>
+                  <div className="modal-actions">
+                    <button type="button" className="btn btn-primary" onClick={() => setPasswordMode(null)}>
+                      Selesai
+                    </button>
+                  </div>
+                </>
+              ) : (
+                <form onSubmit={submitPassword}>
+                  {passwordMode === 'self' && (
+                    <dl style={{ margin: '0 0 16px' }}>
+                      <div className="detail-row">
+                        <dt>Nama petugas</dt>
+                        <dd>{detail.name}</dd>
+                      </div>
+                      <div className="detail-row">
+                        <dt>Username</dt>
+                        <dd>{detail.username}</dd>
+                      </div>
+                    </dl>
+                  )}
+
+                  <p className="small muted" style={{ marginBottom: 12 }}>
+                    {passwordMode === 'self'
+                      ? 'Nama dan username tidak dapat diubah. Di sini Anda hanya dapat mengganti password sendiri.'
+                      : 'Sampaikan password baru ini langsung ke petugas yang bersangkutan.'}
+                  </p>
+
+                  <label className="field">
+                    <span className="field-label">Password baru</span>
+                    <input
+                      className="input"
+                      type="password"
+                      autoComplete="new-password"
+                      value={password}
+                      onChange={(event) => setPassword(event.target.value)}
+                      placeholder="Minimal 8 karakter"
+                      autoFocus
+                    />
+                  </label>
+                  <label className="field">
+                    <span className="field-label">Ulangi password</span>
+                    <input
+                      className="input"
+                      type="password"
+                      autoComplete="new-password"
+                      value={passwordRepeat}
+                      onChange={(event) => setPasswordRepeat(event.target.value)}
+                      placeholder="Ulangi password"
+                    />
+                  </label>
+
+                  {passwordError && <p className="field-error" role="alert">{passwordError}</p>}
+
+                  <div className="modal-actions">
+                    <button
+                      type="button"
+                      className="btn btn-quiet"
+                      onClick={() => setPasswordMode(null)}
+                      disabled={saving}
+                    >
+                      Batal
+                    </button>
+                    <button type="submit" className="btn btn-primary" disabled={saving}>
+                      {saving ? 'Menyimpan...' : 'Simpan'}
+                    </button>
+                  </div>
+                </form>
+              )}
             </div>
           </div>
         </div>
@@ -423,9 +441,7 @@ export function PetugasPage({ isAdmin, selfId, addSignal }: PetugasPageProps) {
                 <button type="button" className="icon-button" aria-label="Kembali" onClick={closeForm}>
                   <IconBack />
                 </button>
-                <h3 className="title" id="petugas-form-title">
-                  {editing ? 'Edit petugas' : 'Tambah petugas'}
-                </h3>
+                <h3 className="title" id="petugas-form-title">Tambah petugas</h3>
               </div>
               <button type="button" className="icon-button" aria-label="Tutup" onClick={closeForm}>
                 <IconClose />
@@ -459,12 +475,11 @@ export function PetugasPage({ isAdmin, selfId, addSignal }: PetugasPageProps) {
                 />
               </label>
 
-              {!editing && (
-                <p className="notice notice-info" role="status">
-                  PIN sementara 6 angka dibuat setelah akun disimpan. Serahkan PIN itu kepada petugas: berlaku
-                  24 jam, hanya sekali pakai, dan saat masuk pertama kali petugas wajib membuat password sendiri.
-                </p>
-              )}
+              <p className="notice notice-info" role="status">
+                Nama dan username tidak dapat diubah setelah akun dibuat. PIN sementara 6 angka dibuat setelah akun
+                disimpan: berlaku 24 jam, hanya sekali pakai, dan saat masuk pertama kali petugas wajib membuat
+                password sendiri.
+              </p>
 
               <fieldset className="field" style={{ border: 'none', padding: 0, margin: 0 }}>
                 <legend className="field-label">Role <span className="required">*</span></legend>
@@ -504,85 +519,13 @@ export function PetugasPage({ isAdmin, selfId, addSignal }: PetugasPageProps) {
 
               <div className="modal-actions">
                 <button type="button" className="btn btn-quiet" onClick={closeForm} disabled={saving}>
-                  Cancel
+                  Batal
                 </button>
                 <button type="submit" className="btn btn-primary" disabled={saving}>
-                  {saving ? 'Menyimpan...' : 'Save'}
+                  {saving ? 'Menyimpan...' : 'Simpan'}
                 </button>
               </div>
             </form>
-          </div>
-        </div>
-      )}
-
-      {resetOpen && detail && (
-        <div
-          className="overlay"
-          role="presentation"
-          onClick={(event) => event.target === event.currentTarget && setResetOpen(false)}
-        >
-          <div className="modal" role="dialog" aria-modal="true" aria-labelledby="petugas-reset-title">
-            <div className="modal-header">
-              <h3 className="title" id="petugas-reset-title">Ganti password — {detail.name}</h3>
-              <button type="button" className="icon-button" aria-label="Tutup" onClick={() => setResetOpen(false)}>
-                <IconClose />
-              </button>
-            </div>
-            <div className="modal-body">
-              {resetDone ? (
-                <>
-                  <p className="notice notice-info" role="status">
-                    Password sudah diganti. Semua sesi akun ini berakhir, jadi petugas harus masuk kembali dengan
-                    password baru.
-                  </p>
-                  <div className="modal-actions">
-                    <button type="button" className="btn btn-primary" onClick={() => setResetOpen(false)}>
-                      Selesai
-                    </button>
-                  </div>
-                </>
-              ) : (
-                <form onSubmit={submitReset}>
-                  <p className="small muted" style={{ marginBottom: 12 }}>
-                    Sampaikan password baru ini langsung ke petugas yang bersangkutan.
-                  </p>
-                  <label className="field">
-                    <span className="field-label">Password baru</span>
-                    <input
-                      className="input"
-                      type="password"
-                      autoComplete="new-password"
-                      value={resetPassword}
-                      onChange={(event) => setResetPassword(event.target.value)}
-                      placeholder="Minimal 8 karakter"
-                      autoFocus
-                    />
-                  </label>
-                  <label className="field">
-                    <span className="field-label">Ulangi password</span>
-                    <input
-                      className="input"
-                      type="password"
-                      autoComplete="new-password"
-                      value={resetRepeat}
-                      onChange={(event) => setResetRepeat(event.target.value)}
-                      placeholder="Ulangi password"
-                    />
-                  </label>
-
-                  {resetError && <p className="field-error" role="alert">{resetError}</p>}
-
-                  <div className="modal-actions">
-                    <button type="button" className="btn btn-quiet" onClick={() => setResetOpen(false)} disabled={saving}>
-                      Batal
-                    </button>
-                    <button type="submit" className="btn btn-primary" disabled={saving}>
-                      {saving ? 'Menyimpan...' : 'Ganti password'}
-                    </button>
-                  </div>
-                </form>
-              )}
-            </div>
           </div>
         </div>
       )}

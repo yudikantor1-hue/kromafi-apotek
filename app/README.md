@@ -262,8 +262,10 @@ The schedule, retention period, and who verifies a restore are still undecided (
   (24 hours, single use, shown once and printable) that the admin hands to the new staff member.
   Signing in with that PIN opens only a password screen: every other route stays closed until the
   staff member sets their own password (at least 8 characters). Issuing a new PIN invalidates the old one.
-- A staff member who never used their PIN can be given a new one from the Petugas screen; issuing a
-  PIN for a deactivated account is refused.
+- The Petugas screen shows a staff member only their own account; an admin sees every account.
+- A name and username are fixed once the account exists; only role and status can change afterwards.
+- An account whose PIN expired is recovered through an admin password reset, and a staff member can
+  change their own password from their account detail.
 - Deactivating an account or resetting its password ends its sessions immediately; a deactivated
   account is refused at sign-in with a clear message.
 - An admin cannot change their own role or deactivate themselves, and the last active admin cannot be

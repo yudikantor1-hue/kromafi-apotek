@@ -216,16 +216,43 @@ describe('cross-origin protection', () => {
 });
 
 describe('staff administration', () => {
-  it('lists staff for any active staff member without exposing password data', async () => {
+  it('shows an admin every account but a staff member only their own', async () => {
     const staff = await login('user');
-    const response = await call('/api/staff', { headers: { cookie: staff.cookie } });
+    const own = await call('/api/staff', { headers: { cookie: staff.cookie } });
+    expect(own.status).toBe(200);
+    const ownBody = await own.json();
+    expect(ownBody.staff.map((row: { username: string }) => row.username)).toEqual(['user']);
 
-    expect(response.status).toBe(200);
-    const body = await response.json();
-    expect(body.staff.map((row: { username: string }) => row.username)).toEqual(
+    const admin = await login('admin');
+    const all = await call('/api/staff', { headers: { cookie: admin.cookie } });
+    expect(all.status).toBe(200);
+    const allBody = await all.json();
+    expect(allBody.staff.map((row: { username: string }) => row.username)).toEqual(
       expect.arrayContaining(['admin', 'user']),
     );
-    expect(JSON.stringify(body)).not.toMatch(/password_(hash|salt)/);
+    expect(JSON.stringify(allBody)).not.toMatch(/password_(hash|salt)/);
+  });
+
+  it('refuses to rename an account once it exists', async () => {
+    const admin = await login('admin');
+    const base = { name: 'Budi', username: 'user', role: 'staf', status: 'Aktif' };
+
+    const newName = await send('PUT', '/api/staff/staff-budi', admin.cookie, { ...base, name: 'Budi Baru' });
+    expect(newName.status).toBe(400);
+    expect(await newName.json()).toMatchObject({ error: 'identity_locked' });
+
+    const newUsername = await send('PUT', '/api/staff/staff-budi', admin.cookie, { ...base, username: 'budibaru' });
+    expect(newUsername.status).toBe(400);
+    expect(await newUsername.json()).toMatchObject({ error: 'identity_locked' });
+  });
+
+  it('lets a signed-in staff member change their own password', async () => {
+    const staff = await login('user');
+    const changed = await jsonRequest('/api/session/password', staff.cookie, { password: 'sandi-sendiri-1' });
+    expect(changed.status).toBe(200);
+
+    expect((await login('user', 'sandi-sendiri-1')).response.status).toBe(200);
+    expect((await login('user', 'rahasia123')).response.status).toBe(401);
   });
 
   it('creates an account with a temporary PIN and rejects a duplicate username', async () => {

@@ -795,6 +795,7 @@ p {
   width: 100%;
   max-width: 384px;
   max-height: 90vh;
+  overflow-x: hidden;
   overflow-y: auto;
   background: var(--surface);
   border: 1px solid var(--border);
@@ -822,6 +823,7 @@ p {
 
 .modal-body {
   padding: 20px;
+  min-width: 0;
 }
 
 .detail-row {
@@ -840,11 +842,14 @@ p {
 
 .detail-row dd {
   margin: 0;
+  min-width: 0;
   font-weight: 700;
+  overflow-wrap: anywhere;
 }
 
 .modal-actions {
   display: flex;
+  flex-wrap: wrap;
   justify-content: flex-end;
   gap: 8px;
   padding-top: 12px;

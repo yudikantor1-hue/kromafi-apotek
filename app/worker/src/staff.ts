@@ -118,6 +118,13 @@ async function activeAdminCount(db: D1Database): Promise<number> {
 
 export async function handleStaffList(_request: Request, db: D1Database, actor: SessionStaff): Promise<Response> {
   if (!can(actor, 'staff:read')) return apiError(403, 'forbidden');
+
+  // A staff member only ever sees their own account; admins manage the station.
+  if (actor.role !== 'admin') {
+    const self = await findStaff(db, actor.id);
+    return json({ staff: self ? [toWire(self)] : [], serverTime: nowIso() });
+  }
+
   const { results } = await db
     .prepare('SELECT * FROM staff ORDER BY name COLLATE NOCASE ASC')
     .all<StaffRow>();
@@ -214,6 +221,11 @@ export async function handleStaffUpdate(
 
   const target = await findStaff(db, id);
   if (!target) return apiError(404, 'not_found');
+
+  // A name and username are fixed once the account exists (Petugas detail rule).
+  if (input.name !== target.name || input.username !== target.username) {
+    return apiError(400, 'identity_locked');
+  }
 
   const before = toWire(target);
   const changesRole = input.role !== target.role;

@@ -264,13 +264,14 @@ export async function handleLogin(request: Request, db: D1Database): Promise<Res
 }
 
 /**
- * The first sign-in with a PIN must end here: the staff member chooses their own
- * password, which promotes the short PIN session to a normal one.
+ * Sets the password of the signed-in staff member. A PIN session uses this to
+ * choose its own password and becomes a normal session; a normal session uses it
+ * to change an existing password from the Petugas screen.
  */
 export async function handleSetOwnPassword(request: Request, db: D1Database): Promise<Response> {
   const staff = await getSessionStaff(request, db);
   if (!staff) return apiError(401, 'unauthenticated');
-  if (!staff.mustChangePassword) return apiError(400, 'password_change_not_required');
+  const firstPinSignIn = staff.mustChangePassword;
 
   const body = await readJson(request);
   const password = typeof body?.password === 'string' ? body.password : '';
@@ -302,7 +303,15 @@ export async function handleSetOwnPassword(request: Request, db: D1Database): Pr
           device_time, server_time, base_version, resulting_version, before_json, after_json, note)
        VALUES (?, 'staff', ?, 'password_set', 'applied', ?, 'server', ?, ?, ?, NULL, NULL, NULL, NULL, ?)`,
     )
-    .bind(crypto.randomUUID(), staff.id, staff.id, crypto.randomUUID(), now, now, 'first_pin_sign_in')
+    .bind(
+      crypto.randomUUID(),
+      staff.id,
+      staff.id,
+      crypto.randomUUID(),
+      now,
+      now,
+      firstPinSignIn ? 'first_pin_sign_in' : 'self_password_change',
+    )
     .run();
 
   return json(
