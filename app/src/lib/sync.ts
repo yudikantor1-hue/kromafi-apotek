@@ -1,3 +1,4 @@
+import { LOCKED_PAYMENT_METHOD_ID } from '../types';
 import { api } from './api';
 import {
   itemsAll,
@@ -218,6 +219,16 @@ export async function loadVisibleReferences(entity: ReferenceEntity): Promise<Vi
       pendingOperationId: operation.operationId,
       pendingAction: 'update',
     });
+  }
+
+  // The server keeps Tunai present and active (10.2.19); a queued edit from
+  // an older build must not make the locked row look deactivated here.
+  if (entity === 'payment_method') {
+    const tunai = byId.get(LOCKED_PAYMENT_METHOD_ID);
+    if (tunai) {
+      tunai.nama = 'Tunai';
+      tunai.status = 'Aktif';
+    }
   }
 
   return [...byId.values()].sort((left, right) =>

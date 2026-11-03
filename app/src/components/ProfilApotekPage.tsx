@@ -56,12 +56,6 @@ export function ProfilApotekPage({ profile, isAdmin, saving, onSave }: ProfilApo
           </p>
         )}
 
-        {!isAdmin && (
-          <p className="notice notice-warning" role="status" style={{ marginBottom: 12 }}>
-            Profil apotek hanya dapat diubah oleh admin. Hubungi admin apotek bila ada data yang perlu diperbaiki.
-          </p>
-        )}
-
         <form onSubmit={submit} noValidate>
           <label className="field">
             <span className="field-label">Nama apotek <span className="required">*</span></span>

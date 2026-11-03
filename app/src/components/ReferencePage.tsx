@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
+import { LOCKED_PAYMENT_METHOD_ID } from '../types';
 import type { ItemStatus, OutboxOperation, ReferenceEntity, ReferencePayload, VisibleReference } from '../types';
 import { IconBack, IconClose, IconEdit } from './Icons';
 
@@ -34,6 +35,9 @@ interface FormState {
 }
 
 const EMPTY_FORM: FormState = { nama: '', status: 'Aktif' };
+
+const isLocked = (entity: ReferenceEntity, record: VisibleReference | null) =>
+  entity === 'payment_method' && record?.id === LOCKED_PAYMENT_METHOD_ID;
 
 function toForm(record: VisibleReference | null): FormState {
   if (!record) return { ...EMPTY_FORM };
@@ -91,6 +95,7 @@ export function ReferencePage({
   );
 
   function openForm(record: VisibleReference | null) {
+    if (isLocked(entity, record)) return;
     setEditingId(record?.id ?? null);
     setForm(toForm(record));
     setFormError('');
@@ -174,6 +179,9 @@ export function ReferencePage({
               <div className="item-row-top">
                 <span className="item-name">{record.nama}</span>
                 <span className="row-chips">
+                  {isLocked(entity, record) && (
+                    <span className="chip chip-active" title="Wajib ada dan selalu aktif">Wajib</span>
+                  )}
                   {record.pending && (
                     <span className="chip chip-pending" title="Belum dikonfirmasi pusat">
                       Menunggu
@@ -217,15 +225,17 @@ export function ReferencePage({
                 </button>
                 <h3 className="title" id="reference-detail-title">{detail.nama}</h3>
               </div>
-              <button
-                type="button"
-                className="btn btn-secondary btn-icon"
-                title={`Edit ${noun}`}
-                aria-label={`Edit ${noun}`}
-                onClick={() => openForm(detail)}
-              >
-                <IconEdit size={18} />
-              </button>
+              {!isLocked(entity, detail) && (
+                <button
+                  type="button"
+                  className="btn btn-secondary btn-icon"
+                  title={`Edit ${noun}`}
+                  aria-label={`Edit ${noun}`}
+                  onClick={() => openForm(detail)}
+                >
+                  <IconEdit size={18} />
+                </button>
+              )}
             </div>
             <div className="modal-body">
               {detail.pending && (
@@ -243,6 +253,11 @@ export function ReferencePage({
                   <dd>: {detail.status}</dd>
                 </div>
               </dl>
+              {isLocked(entity, detail) && (
+                <p className="small muted" style={{ marginTop: 12 }}>
+                  Metode pembayaran Tunai wajib ada dan selalu aktif, jadi tidak dapat diubah.
+                </p>
+              )}
             </div>
           </div>
         </div>

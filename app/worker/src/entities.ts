@@ -1,5 +1,7 @@
 import { type ItemFields, type ItemRow, rowToItem, validateItemPayload } from './items';
 import {
+  LOCKED_PAYMENT_METHOD,
+  LOCKED_PAYMENT_METHOD_ID,
   REFERENCE_TABLES,
   SETTINGS_ID,
   type ReferenceEntity,
@@ -29,6 +31,8 @@ export interface EntityAdapter {
   uniqueName: boolean;
   /** The pharmacy profile is changed by admins only. */
   requiresAdmin: boolean;
+  /** Fields the server always rewrites for a row a device may not change (10.2.19). */
+  locked?(id: string, fields: Record<string, unknown>): Record<string, unknown>;
   validate(payload: unknown): { ok: true; fields: Record<string, unknown> } | { ok: false; message: string };
   values(fields: Record<string, unknown>): unknown[];
   before(row: Record<string, unknown>): unknown;
@@ -76,7 +80,7 @@ const itemAdapter: EntityAdapter = {
 };
 
 function referenceAdapter(entity: ReferenceEntity): EntityAdapter {
-  return {
+  const adapter: EntityAdapter = {
     entity,
     table: REFERENCE_TABLES[entity],
     columns: ['nama', 'status'],
@@ -102,6 +106,14 @@ function referenceAdapter(entity: ReferenceEntity): EntityAdapter {
     }),
     rowToWire: (row) => referenceRowToWire(row as unknown as ReferenceRow),
   };
+
+  // Cash stays present and active even when a device asks otherwise.
+  if (entity === 'payment_method') {
+    adapter.locked = (id, fields) =>
+      id === LOCKED_PAYMENT_METHOD_ID ? { ...fields, ...LOCKED_PAYMENT_METHOD } : fields;
+  }
+
+  return adapter;
 }
 
 const settingsAdapter: EntityAdapter = {

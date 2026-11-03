@@ -64,8 +64,8 @@ is applied locally and still has to be applied to the remote database.
 
 - Fields: `id` (primary key), `nama` (unique, case-insensitive), `status`, `version`, `device_updated_at`, `server_updated_at`, `created_at`, `updated_by`.
 - Keys: primary key `id`; unique index `idx_payment_methods_nama_unique`; index `idx_payment_methods_server_updated`.
-- Access and lifecycle: managed from the Metode pembayaran screen through the sync engine; deactivated, never deleted. A cash flag is not stored yet.
-- Source of truth: [0006_reference_data.sql](app/worker/migrations/0006_reference_data.sql), [reference.ts](app/worker/src/reference.ts).
+- Access and lifecycle: managed from the Metode pembayaran screen through the sync engine; deactivated, never deleted. A cash flag is not stored yet. `payment_method_tunai` (`Tunai`) is seeded by `0008_payment_tunai.sql` and locked: the Worker rewrites its name and status, so it always exists and is always `Aktif` (10.2.19).
+- Source of truth: [0006_reference_data.sql](app/worker/migrations/0006_reference_data.sql), [0008_payment_tunai.sql](app/worker/migrations/0008_payment_tunai.sql), [reference.ts](app/worker/src/reference.ts).
 
 **`doctors`** — doctor list printed on receipts.
 

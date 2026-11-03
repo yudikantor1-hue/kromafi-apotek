@@ -7,7 +7,6 @@ import { LoginPage } from './components/LoginPage';
 import { PetugasPage } from './components/PetugasPage';
 import { ProfilApotekPage } from './components/ProfilApotekPage';
 import { ReferencePage } from './components/ReferencePage';
-import { SetPasswordPage } from './components/SetPasswordPage';
 import { SetupPage } from './components/SetupPage';
 import { Shell } from './components/Shell';
 import { api } from './lib/api';
@@ -54,7 +53,7 @@ import type {
 const SESSION_KEY = 'session';
 const OFFLINE_USER_KEY = 'offlineUsername';
 
-type Phase = 'boot' | 'login' | 'setpassword' | 'setup' | 'app';
+type Phase = 'boot' | 'login' | 'setup' | 'app';
 
 const IMPORT_MESSAGES: Record<string, string> = {
   invalid_package: 'File tidak dikenali sebagai paket Kromafi.',
@@ -87,6 +86,7 @@ export default function App() {
   const [items, setItems] = useState<VisibleItem[]>([]);
   const [references, setReferences] = useState<Record<ReferenceEntity, VisibleReference[]>>(EMPTY_REFERENCES);
   const [pharmacy, setPharmacy] = useState<VisiblePharmacy | null>(null);
+  const [pharmacyName, setPharmacyName] = useState('');
   const [outbox, setOutbox] = useState<OutboxOperation[]>([]);
   const [lastSync, setLastSync] = useState<string | null>(null);
   const [online, setOnline] = useState(typeof navigator === 'undefined' ? true : navigator.onLine);
@@ -96,8 +96,6 @@ export default function App() {
   const [syncing, setSyncing] = useState(false);
   const [saving, setSaving] = useState(false);
   const [loginError, setLoginError] = useState('');
-  const [pinSession, setPinSession] = useState<{ staff: Session['staff']; username: string } | null>(null);
-  const [pinError, setPinError] = useState('');
   const [setupError, setSetupError] = useState('');
   const [notice, setNotice] = useState('');
   const [exportOpen, setExportOpen] = useState(false);
@@ -138,6 +136,10 @@ export default function App() {
       supplier: suppliers,
     });
     setPharmacy(profile);
+    if (profile?.namaApotek) {
+      setPharmacyName(profile.namaApotek);
+      void metaSet('pharmacyName', profile.namaApotek);
+    }
     setOutbox(queued);
     setLastSync(await lastSyncAt());
     setCursor((await metaGet<string>('cursor')) ?? null);
@@ -200,6 +202,8 @@ export default function App() {
       if (cancelled) return;
 
       setOfflineReady(Boolean(offlineUsername));
+      const cachedName = await metaGet<string>('pharmacyName');
+      if (cachedName) setPharmacyName(cachedName);
       await refreshLocal();
 
       if (!storedSession) {
@@ -219,6 +223,22 @@ export default function App() {
       cancelled = true;
     };
   }, [refreshLocal]);
+
+  // The login screen shows the pharmacy name before there is a session, so
+  // it is read from a public route and cached for the next offline sign-in.
+  useEffect(() => {
+    if (phase !== 'login' || !navigator.onLine) return;
+    let cancelled = false;
+    void api.pharmacy().then(async (result) => {
+      const name = result.ok ? (result.data?.namaApotek ?? '').trim() : '';
+      if (!name || cancelled) return;
+      setPharmacyName(name);
+      await metaSet('pharmacyName', name);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [phase]);
 
   useEffect(() => {
     const goOnline = () => {
@@ -311,90 +331,6 @@ export default function App() {
       setSession(next);
       setPhase('app');
       await refreshLocal();
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  /**
-   * Sign-in with the temporary PIN issued in the Petugas screen (10.2.10).
-   * Only the server can validate a PIN, so this path needs a connection.
-   */
-  async function handlePinSignIn(username: string, pin: string) {
-    setBusy(true);
-    setLoginError('');
-    setPinError('');
-
-    try {
-      if (!navigator.onLine) {
-        setLoginError('PIN sementara hanya bisa dipakai saat ada internet.');
-        return;
-      }
-
-      const result = await api.loginWithPin(username.trim().toLowerCase(), pin);
-
-      if (result.ok && result.data) {
-        setPinSession({
-          staff: {
-            id: result.data.staff.id,
-            name: result.data.staff.name,
-            username: result.data.staff.username,
-            role: result.data.staff.role,
-          },
-          username: result.data.staff.username,
-        });
-        setPhase('setpassword');
-        return;
-      }
-
-      const messages: Record<string, string> = {
-        invalid_pin: 'PIN salah atau sudah tidak berlaku.',
-        pin_expired: 'PIN sudah kedaluwarsa. Minta PIN baru kepada admin.',
-        account_inactive: 'Akun ini tidak aktif. Hubungi admin apotek.',
-        too_many_attempts: 'Terlalu banyak percobaan. Coba lagi beberapa menit.',
-        network_error: 'Tidak dapat menghubungi pusat. Periksa koneksi lalu coba lagi.',
-      };
-      setLoginError(messages[result.error ?? ''] ?? 'PIN tidak dapat diproses. Coba lagi.');
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  /** The PIN session becomes a normal session only after this succeeds. */
-  async function handleSetPassword(password: string) {
-    if (!pinSession) return;
-    setBusy(true);
-    setPinError('');
-
-    try {
-      const result = await api.setOwnPassword(password);
-      if (!result.ok || !result.data) {
-        setPinError(
-          result.error === 'invalid_password'
-            ? 'Password minimal 8 karakter.'
-            : 'Password tidak dapat disimpan. Coba lagi.',
-        );
-        return;
-      }
-
-      const staff = pinSession.staff;
-      await provisionCredential(result.data.staff, password);
-      await metaSet(OFFLINE_USER_KEY, staff.username.trim().toLowerCase());
-
-      const next: Session = { staff, mode: 'online', signedInAt: new Date().toISOString() };
-      await metaSet(SESSION_KEY, next);
-      setSession(next);
-      setOfflineReady(true);
-      setPinSession(null);
-
-      const [localItems, localCursor] = await Promise.all([itemsAll(), metaGet<string>('cursor')]);
-      if (localItems.length === 0 && !localCursor) {
-        setPhase('setup');
-      } else {
-        setPhase('app');
-        await refreshLocal();
-        await runSync({ silent: true });
-      }
     } finally {
       setBusy(false);
     }
@@ -518,29 +454,11 @@ export default function App() {
     return (
       <LoginPage
         onSubmit={handleSignIn}
-        onSubmitPin={handlePinSignIn}
         busy={busy}
         error={loginError}
         offline={!online}
         offlineReady={offlineReady}
-      />
-    );
-  }
-
-  if (phase === 'setpassword' && pinSession) {
-    return (
-      <SetPasswordPage
-        name={pinSession.staff.name}
-        username={pinSession.username}
-        busy={busy}
-        error={pinError}
-        onSubmit={handleSetPassword}
-        onCancel={async () => {
-          await api.logout().catch(() => undefined);
-          setPinSession(null);
-          setPinError('');
-          setPhase('login');
-        }}
+        pharmacyName={pharmacyName}
       />
     );
   }
@@ -623,7 +541,19 @@ export default function App() {
         >
           <IconDownload size={18} />
         </button>
-        {referenceAddButton('Tambah barang')}
+        <button
+          type="button"
+          className="btn btn-primary btn-icon"
+          title="Tambah barang"
+          aria-label="Tambah barang"
+          onClick={() => {
+            setEditingId(null);
+            setDetailId(null);
+            setFormOpen(true);
+          }}
+        >
+          <IconPlus size={18} />
+        </button>
       </>
     );
   }

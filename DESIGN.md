@@ -116,7 +116,7 @@ The initial production database should include the following core entities.
 
 - `cabinets`, `payment_methods`, `doctors`, `suppliers`, implemented in [0006_reference_data.sql](app/worker/migrations/0006_reference_data.sql)
 - fields: id, nama (unique, case-insensitive), status, version, device_updated_at, server_updated_at, created_at, updated_by
-- Separate tables on purpose (10.2.17): a foreign key must never be able to point at the wrong kind of record, and each list will grow its own fields. They share one column pattern and one generic screen in the app.
+- Separate tables on purpose (10.2.17): a foreign key must never be able to point at the wrong kind of record, and each list will grow its own fields. They share one column pattern and one generic screen in the app. The Tunai payment method is seeded by migration `0008` with a fixed id and is locked active in both the Worker and the screen (10.2.19). The pharmacy profile is edited by admins only; staff see the same fields read-only without a warning (10.2.18).
 
 ### Batches and expiry
 
@@ -166,6 +166,7 @@ The initial production database should include the following core entities.
 3. API checks account status and role.
 4. API returns session token or auth result.
 5. Frontend stores the auth state and routes to authorized screens.
+6. The screen shows one password form only (10.2.18): the temporary-PIN entry, the *Lupa password?* link, and the PIN-to-password screen are removed. Its title is the pharmacy name from `GET /api/pharmacy`, cached on the device for offline sign-in. New accounts take an initial password the admin types and hands over (10.2.20).
 
 ### 7.2 Sales workflow
 

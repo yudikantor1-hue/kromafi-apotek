@@ -257,15 +257,21 @@ describe('staff administration', () => {
     expect((await login('user', 'rahasia123')).response.status).toBe(401);
   });
 
-  it('creates an account with a temporary PIN and rejects a duplicate username', async () => {
+  it('creates an account with an admin-set password and rejects a duplicate username', async () => {
     const admin = await login('admin');
-    const payload = { name: 'Sinta', username: 'sinta', role: 'staf', status: 'Aktif' };
+    const payload = {
+      name: 'Sinta',
+      username: 'sinta',
+      role: 'staf',
+      status: 'Aktif',
+      password: 'sandi-awal-123',
+    };
 
     const created = await jsonRequest('/api/staff', admin.cookie, payload);
     expect(created.status).toBe(201);
     const body = await created.json();
-    expect(body.pin).toMatch(/^\d{6}$/);
-    expect(body.pinExpiresAt).toBeTruthy();
+    expect(body).toMatchObject({ staff: { username: 'sinta' } });
+    expect(body.pin).toBeUndefined();
 
     const duplicate = await jsonRequest('/api/staff', admin.cookie, payload);
     expect(duplicate.status).toBe(409);
@@ -274,7 +280,13 @@ describe('staff administration', () => {
 
   it('rejects invalid account data and non-admin mutations', async () => {
     const admin = await login('admin');
-    const base = { name: 'Baru', username: 'baru', role: 'staf', status: 'Aktif' };
+    const base = {
+      name: 'Baru',
+      username: 'baru',
+      role: 'staf',
+      status: 'Aktif',
+      password: 'sandi-awal-123',
+    };
 
     expect((await jsonRequest('/api/staff', admin.cookie, { ...base, name: '' })).status).toBe(400);
     expect((await jsonRequest('/api/staff', admin.cookie, { ...base, username: 'bukan username' })).status).toBe(400);
@@ -385,101 +397,49 @@ describe('staff administration', () => {
   });
 });
 
-describe('temporary PIN accounts', () => {
-  async function createAccount(adminCookie: string, username = 'sinta') {
-    const response = await jsonRequest('/api/staff', adminCookie, {
-      name: 'Sinta',
-      username,
-      role: 'staf',
-      status: 'Aktif',
-    });
-    expect(response.status).toBe(201);
-    return response.json() as Promise<{ pin: string; pinExpiresAt: string; staff: { id: string } }>;
-  }
-
-  async function pinLogin(username: string, pin: string) {
-    const response = await call('/api/login', {
-      method: 'POST',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ username, pin }),
-    });
-    const cookie = response.headers.get('set-cookie')?.split(';')[0] ?? '';
-    return { response, cookie };
-  }
-
-  it('opens a session that must set a password before using the app', async () => {
+describe('account provisioning', () => {
+  it('signs in with the password the admin typed at creation', async () => {
     const admin = await login('admin');
-    const created = await createAccount(admin.cookie);
-
-    const first = await pinLogin('sinta', created.pin);
-    expect(first.response.status).toBe(200);
-    expect(await first.response.json()).toMatchObject({ requiresPasswordChange: true });
-
-    expect((await call('/api/sync/snapshot', { headers: { cookie: first.cookie } })).status).toBe(403);
-
-    const set = await jsonRequest('/api/session/password', first.cookie, { password: 'sandi-baru-1' });
-    expect(set.status).toBe(200);
-    expect((await call('/api/sync/snapshot', { headers: { cookie: first.cookie } })).status).toBe(200);
-
-    const signIn = await login('sinta', 'sandi-baru-1');
-    expect(signIn.response.status).toBe(200);
-  });
-
-  it('refuses a PIN that was already used', async () => {
-    const admin = await login('admin');
-    const created = await createAccount(admin.cookie);
-
-    expect((await pinLogin('sinta', created.pin)).response.status).toBe(200);
-    const replay = await pinLogin('sinta', created.pin);
-    expect(replay.response.status).toBe(401);
-    expect(await replay.response.json()).toMatchObject({ error: 'invalid_pin' });
-  });
-
-  it('refuses an expired PIN', async () => {
-    const admin = await login('admin');
-    const created = await createAccount(admin.cookie);
-    db.rawRun('UPDATE staff SET pin_expires_at = ? WHERE username = ?', '2020-01-01T00:00:00.000Z', 'sinta');
-
-    const expired = await pinLogin('sinta', created.pin);
-    expect(expired.response.status).toBe(401);
-    expect(await expired.response.json()).toMatchObject({ error: 'pin_expired' });
-  });
-
-  it('invalidates the previous PIN when a new one is issued', async () => {
-    const admin = await login('admin');
-    const created = await createAccount(admin.cookie);
-
-    const reissued = await jsonRequest(`/api/staff/${created.staff.id}/pin`, admin.cookie, {});
-    expect(reissued.status).toBe(200);
-    const fresh = await reissued.json();
-
-    expect((await pinLogin('sinta', created.pin)).response.status).toBe(401);
-    expect((await pinLogin('sinta', fresh.pin)).response.status).toBe(200);
-  });
-
-  it('refuses a PIN for a deactivated account and refuses a non-admin issuer', async () => {
-    const admin = await login('admin');
-    const created = await createAccount(admin.cookie);
-
-    await send('PUT', `/api/staff/${created.staff.id}`, admin.cookie, {
+    const created = await jsonRequest('/api/staff', admin.cookie, {
       name: 'Sinta',
       username: 'sinta',
       role: 'staf',
-      status: 'Tidak aktif',
+      status: 'Aktif',
+      password: 'sandi-awal-123',
     });
-    expect((await pinLogin('sinta', created.pin)).response.status).toBe(403);
+    expect(created.status).toBe(201);
 
-    const staff = await login('user');
-    expect((await jsonRequest('/api/staff/staff-budi/pin', staff.cookie, {})).status).toBe(403);
+    const signIn = await login('sinta', 'sandi-awal-123');
+    expect(signIn.response.status).toBe(200);
+    expect((await call('/api/sync/snapshot', { headers: { cookie: signIn.cookie } })).status).toBe(200);
   });
 
-  it('rejects a too-short password on the forced screen', async () => {
+  it('rejects a creation without a usable password', async () => {
     const admin = await login('admin');
-    const created = await createAccount(admin.cookie);
-    const { cookie } = await pinLogin('sinta', created.pin);
+    const base = { name: 'Sinta', username: 'sinta', role: 'staf', status: 'Aktif' };
 
-    expect((await jsonRequest('/api/session/password', cookie, { password: 'pendek' })).status).toBe(400);
-    expect((await call('/api/sync/snapshot', { headers: { cookie } })).status).toBe(403);
+    const missing = await jsonRequest('/api/staff', admin.cookie, base);
+    expect(missing.status).toBe(400);
+    expect(await missing.json()).toMatchObject({ error: 'invalid_password' });
+
+    const short = await jsonRequest('/api/staff', admin.cookie, { ...base, password: 'pendek' });
+    expect(short.status).toBe(400);
+    expect(await short.json()).toMatchObject({ error: 'invalid_password' });
+  });
+
+  it('no longer exposes a PIN route', async () => {
+    const admin = await login('admin');
+    const created = await jsonRequest('/api/staff', admin.cookie, {
+      name: 'Sinta',
+      username: 'sinta',
+      role: 'staf',
+      status: 'Aktif',
+      password: 'sandi-awal-123',
+    });
+    const body = await created.json();
+
+    const pin = await jsonRequest(`/api/staff/${body.staff.id}/pin`, admin.cookie, {});
+    expect(pin.status).toBe(404);
   });
 });
 
@@ -875,7 +835,7 @@ describe('reference data', () => {
     const admin = await login('admin');
     const operations = [
       referenceOp('cabinet', { nama: 'Lemari depan' }),
-      referenceOp('payment_method', { nama: 'Tunai' }),
+      referenceOp('payment_method', { nama: 'Transfer' }),
       referenceOp('doctor', { nama: 'dr. Andi' }),
       referenceOp('supplier', { nama: 'PT Sehat' }),
     ];
@@ -891,7 +851,7 @@ describe('reference data', () => {
     const snapshot = await call('/api/sync/snapshot', { headers: { cookie: admin.cookie } });
     const body = await snapshot.json();
     expect(body.cabinets).toMatchObject([{ nama: 'Lemari depan', status: 'Aktif', version: 1 }]);
-    expect(body.paymentMethods[0]).toMatchObject({ nama: 'Tunai' });
+    expect(body.paymentMethods[0]).toMatchObject({ nama: 'Transfer' });
     expect(body.doctors[0]).toMatchObject({ nama: 'dr. Andi' });
     expect(body.suppliers[0]).toMatchObject({ nama: 'PT Sehat' });
   });
@@ -951,6 +911,48 @@ describe('reference data', () => {
       alamat: 'Jl. Mawar 1',
       version: 2,
     });
+  });
+
+  it('seeds Tunai and keeps it active whatever a device sends', async () => {
+    const admin = await login('admin');
+
+    const snapshot = await call('/api/sync/snapshot', { headers: { cookie: admin.cookie } });
+    expect((await snapshot.json()).paymentMethods).toMatchObject([
+      { id: 'payment_method_tunai', nama: 'Tunai', status: 'Aktif' },
+    ]);
+
+    const pushed = await push(admin.cookie, 'device-1', [
+      referenceOp('payment_method', { nama: 'Tunai', status: 'Tidak aktif' }, {
+        action: 'update',
+        itemId: 'payment_method_tunai',
+        baseVersion: 1,
+      }),
+    ]);
+    expect(pushed.body.results[0]).toMatchObject({ status: 'applied' });
+    expect(pushed.body.results[0].record).toMatchObject({ nama: 'Tunai', status: 'Aktif' });
+    expect(db.raw('SELECT nama, status FROM payment_methods')).toEqual([
+      { nama: 'Tunai', status: 'Aktif' },
+    ]);
+  });
+
+  it('serves the pharmacy name to the login screen without a session', async () => {
+    const admin = await login('admin');
+    await push(admin.cookie, 'device-1', [
+      {
+        operationId: crypto.randomUUID(),
+        entity: 'settings',
+        action: 'update',
+        itemId: 'apotek',
+        authorId: 'staff-admin',
+        baseVersion: 1,
+        deviceTime: iso(),
+        payload: { namaApotek: 'Apotek Sehat', alamat: 'Jl. Mawar 1' },
+      },
+    ]);
+
+    const response = await call('/api/pharmacy');
+    expect(response.status).toBe(200);
+    expect(await response.json()).toMatchObject({ namaApotek: 'Apotek Sehat' });
   });
 });
 

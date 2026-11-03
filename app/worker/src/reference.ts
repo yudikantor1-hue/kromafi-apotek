@@ -110,6 +110,13 @@ export interface SettingsRow {
 /** The one pharmacy profile this installation belongs to. */
 export const SETTINGS_ID = 'apotek';
 
+/**
+ * Cash is always available (10.2.19): the row is seeded by migration 0008 and
+ * the server rewrites its name and status, so no device can remove it.
+ */
+export const LOCKED_PAYMENT_METHOD_ID = 'payment_method_tunai';
+export const LOCKED_PAYMENT_METHOD = { nama: 'Tunai', status: 'Aktif' } as const;
+
 export function settingsRowToWire(row: SettingsRow): SettingsWire {
   return {
     id: row.id,

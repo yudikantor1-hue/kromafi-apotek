@@ -1020,13 +1020,3 @@ p {
     flex: 1 1 100%;
   }
 }
-
-/* One-time PIN shown to the admin after creating an account. */
-.pin-value {
-  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-  font-size: 32px;
-  font-weight: 700;
-  letter-spacing: 8px;
-  text-align: center;
-  margin: 8px 0;
-}

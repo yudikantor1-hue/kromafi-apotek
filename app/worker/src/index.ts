@@ -4,7 +4,8 @@ import { apiError, isSameOriginRequest, json, nowIso } from './http';
 import { handleAudit, handleItemList, handleSnapshot } from './items';
 import { roleAllows } from './permissions';
 import { handleRecoveryGenerate, handleRecoveryReset } from './recovery';
-import { handleStaffCreate, handleStaffList, handleStaffPassword, handleStaffPin, handleStaffUpdate } from './staff';
+import { loadSettings } from './reference';
+import { handleStaffCreate, handleStaffList, handleStaffPassword, handleStaffUpdate } from './staff';
 import { handlePush } from './sync';
 
 async function health(env: Env): Promise<Response> {
@@ -26,19 +27,19 @@ async function route(request: Request, env: Env): Promise<Response> {
   if (isMutation && !isSameOriginRequest(request)) return apiError(403, 'forbidden_origin');
 
   if (path === '/api/health' && method === 'GET') return health(env);
+
+  // The login screen shows the pharmacy name before there is a session, so
+  // this route carries that one public field and nothing else.
+  if (path === '/api/pharmacy' && method === 'GET') {
+    const settings = await loadSettings(env.DB);
+    return json({ namaApotek: settings?.namaApotek ?? '' });
+  }
   if (path === '/api/login' && method === 'POST') return handleLogin(request, env.DB);
   if (path === '/api/logout' && method === 'POST') return handleLogout(request, env.DB);
   if (path === '/api/recovery/reset' && method === 'POST') return handleRecoveryReset(request, env.DB);
 
   if (path === '/api/me' && method === 'GET') return handleMe(request, env.DB);
   if (path === '/api/session/password' && method === 'POST') return handleSetOwnPassword(request, env.DB);
-
-  // A session opened with a temporary PIN exists only to set a password. Every
-  // other protected route stays closed until its owner has chosen one (10.2.10).
-  if (path.startsWith('/api/')) {
-    const pending = await getSessionStaff(request, env.DB);
-    if (pending?.mustChangePassword) return apiError(403, 'password_change_required');
-  }
 
   if (path === '/api/sync/snapshot' && method === 'GET') {
     const staff = await getSessionStaff(request, env.DB);
@@ -73,7 +74,7 @@ async function route(request: Request, env: Env): Promise<Response> {
     return handleStaffCreate(request, env.DB, staff);
   }
 
-  const staffRoute = path.match(/^\/api\/staff\/([^/]+)(\/password|\/recovery-codes|\/pin)?$/);
+  const staffRoute = path.match(/^\/api\/staff\/([^/]+)(\/password|\/recovery-codes)?$/);
   if (staffRoute) {
     const staff = await getSessionStaff(request, env.DB);
     if (!staff) return apiError(401, 'unauthenticated');
@@ -84,9 +85,6 @@ async function route(request: Request, env: Env): Promise<Response> {
     }
     if (staffRoute[2] === '/recovery-codes' && method === 'POST') {
       return handleRecoveryGenerate(request, env.DB, staff, targetId);
-    }
-    if (staffRoute[2] === '/pin' && method === 'POST') {
-      return handleStaffPin(request, env.DB, staff, targetId);
     }
     if (!staffRoute[2] && method === 'PUT') {
       return handleStaffUpdate(request, env.DB, staff, targetId);

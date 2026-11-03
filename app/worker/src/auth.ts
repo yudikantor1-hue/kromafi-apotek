@@ -10,14 +10,10 @@ import {
   SESSION_COOKIE,
   sessionCookie,
 } from './http';
-import { clearPin, verifyPin } from './pin';
 import { hashPassword, verifyPassword } from './password';
 import { normalizeUsername } from './username';
 
 export const SESSION_TTL_MS = 12 * 60 * 60 * 1000;
-// A PIN session exists only to let its owner choose a password; it is short and
-// every other route is closed while it lasts.
-const PIN_SESSION_TTL_MS = 15 * 60 * 1000;
 const ATTEMPT_LIMIT = 5;
 const ATTEMPT_WINDOW_MS = 15 * 60 * 1000;
 const MIN_PASSWORD_LENGTH = 8;
@@ -30,7 +26,6 @@ export interface SessionStaff {
   role: 'admin' | 'staf';
   status: string;
   deactivatedAt: string | null;
-  mustChangePassword: boolean;
 }
 
 interface StaffRow {
@@ -43,10 +38,6 @@ interface StaffRow {
   password_salt: string;
   password_iterations: number;
   deactivated_at: string | null;
-  pin_hash?: string | null;
-  pin_salt?: string | null;
-  pin_iterations?: number | null;
-  pin_expires_at?: string | null;
 }
 
 function toHex(bytes: Uint8Array): string {
@@ -58,7 +49,7 @@ async function sha256Hex(value: string): Promise<string> {
   return toHex(new Uint8Array(digest));
 }
 
-function toSessionStaff(row: StaffRow, mustChangePassword = false): SessionStaff {
+function toSessionStaff(row: StaffRow): SessionStaff {
   return {
     id: row.id,
     name: row.name,
@@ -66,7 +57,6 @@ function toSessionStaff(row: StaffRow, mustChangePassword = false): SessionStaff
     role: row.role,
     status: row.status,
     deactivatedAt: row.deactivated_at,
-    mustChangePassword,
   };
 }
 
@@ -102,7 +92,7 @@ export async function clearFailedAttempts(db: D1Database, username: string): Pro
 export async function createSession(
   db: D1Database,
   staffId: string,
-  options: { mustChangePassword?: boolean; ttlMs?: number } = {},
+  options: { ttlMs?: number } = {},
 ): Promise<{ token: string; expiresAt: string }> {
   const token = toHex(crypto.getRandomValues(new Uint8Array(32)));
   const tokenHash = await sha256Hex(token);
@@ -111,9 +101,9 @@ export async function createSession(
   const expiresAt = new Date(now + ttlMs).toISOString();
   await db
     .prepare(
-      'INSERT INTO sessions (token_hash, staff_id, created_at, expires_at, must_change_password) VALUES (?, ?, ?, ?, ?)',
+      'INSERT INTO sessions (token_hash, staff_id, created_at, expires_at) VALUES (?, ?, ?, ?)',
     )
-    .bind(tokenHash, staffId, new Date(now).toISOString(), expiresAt, options.mustChangePassword ? 1 : 0)
+    .bind(tokenHash, staffId, new Date(now).toISOString(), expiresAt)
     .run();
   return { token, expiresAt };
 }
@@ -125,20 +115,19 @@ export async function getSessionStaff(request: Request, db: D1Database): Promise
   const row = await db
     .prepare(
       `SELECT s.id, s.name, s.username, s.role, s.status, s.password_hash, s.password_salt,
-              s.password_iterations, s.deactivated_at, sessions.expires_at,
-              sessions.must_change_password
+              s.password_iterations, s.deactivated_at, sessions.expires_at
          FROM sessions JOIN staff s ON s.id = sessions.staff_id
         WHERE sessions.token_hash = ?`,
     )
     .bind(tokenHash)
-    .first<StaffRow & { expires_at: string; must_change_password: number | null }>();
+    .first<StaffRow & { expires_at: string }>();
 
   if (!row) return null;
   if (Date.parse(row.expires_at) <= Date.now()) {
     await db.prepare('DELETE FROM sessions WHERE token_hash = ?').bind(tokenHash).run();
     return null;
   }
-  return toSessionStaff(row, Boolean(row.must_change_password));
+  return toSessionStaff(row);
 }
 
 async function lockoutResponse(db: D1Database, username: string): Promise<Response | null> {
@@ -152,73 +141,11 @@ async function lockoutResponse(db: D1Database, username: string): Promise<Respon
   return json({ error: 'too_many_attempts', retryAfterSeconds: Math.ceil((lockedUntil - Date.now()) / 1000) }, 429);
 }
 
-/**
- * Sign-in with the temporary PIN of a newly created account. A successful PIN
- * opens a short session that may only set a password (10.2.10).
- */
-async function handlePinLogin(
-  request: Request,
-  db: D1Database,
-  username: string,
-  pin: string,
-): Promise<Response> {
-  const locked = await lockoutResponse(db, username);
-  if (locked) return locked;
-
-  const staff = await db
-    .prepare(
-      `SELECT id, name, username, role, status, password_hash, password_salt, password_iterations,
-              deactivated_at, pin_hash, pin_salt, pin_iterations, pin_expires_at
-         FROM staff WHERE username = ?`,
-    )
-    .bind(username)
-    .first<StaffRow>();
-
-  // An unknown username answers exactly like a wrong PIN, so the screen cannot
-  // be used to discover which accounts exist.
-  if (!staff) {
-    await recordFailedAttempt(db, username);
-    return apiError(401, 'invalid_pin');
-  }
-
-  const check = await verifyPin(pin, staff);
-  if (check !== 'ok') {
-    await recordFailedAttempt(db, username);
-    return apiError(401, check === 'expired' ? 'pin_expired' : 'invalid_pin');
-  }
-
-  if (staff.status !== 'Aktif') {
-    await recordFailedAttempt(db, username);
-    return apiError(403, 'account_inactive');
-  }
-
-  await clearFailedAttempts(db, username);
-  await clearPin(db, staff.id);
-  const session = await createSession(db, staff.id, {
-    mustChangePassword: true,
-    ttlMs: PIN_SESSION_TTL_MS,
-  });
-
-  return json(
-    { staff: toSessionStaff(staff, true), requiresPasswordChange: true, expiresAt: session.expiresAt },
-    200,
-    {
-      'set-cookie': sessionCookie(
-        session.token,
-        isSecureRequest(request),
-        Math.floor(PIN_SESSION_TTL_MS / 1000),
-      ),
-    },
-  );
-}
-
 export async function handleLogin(request: Request, db: D1Database): Promise<Response> {
   const body = await readJson(request);
   const username = normalizeUsername(body?.username);
-  const pin = typeof body?.pin === 'string' ? body.pin.trim() : '';
   const password = typeof body?.password === 'string' ? body.password : '';
   if (!username) return apiError(400, 'missing_credentials');
-  if (pin) return handlePinLogin(request, db, username, pin);
   if (!password) return apiError(400, 'missing_credentials');
 
   const locked = await lockoutResponse(db, username);
@@ -263,15 +190,10 @@ export async function handleLogin(request: Request, db: D1Database): Promise<Res
   );
 }
 
-/**
- * Sets the password of the signed-in staff member. A PIN session uses this to
- * choose its own password and becomes a normal session; a normal session uses it
- * to change an existing password from the Petugas screen.
- */
+/** Sets the password of the signed-in staff member from the Petugas screen. */
 export async function handleSetOwnPassword(request: Request, db: D1Database): Promise<Response> {
   const staff = await getSessionStaff(request, db);
   if (!staff) return apiError(401, 'unauthenticated');
-  const firstPinSignIn = staff.mustChangePassword;
 
   const body = await readJson(request);
   const password = typeof body?.password === 'string' ? body.password : '';
@@ -292,7 +214,7 @@ export async function handleSetOwnPassword(request: Request, db: D1Database): Pr
   const tokenHash = await sha256Hex(token);
   const expiresAt = new Date(Date.now() + SESSION_TTL_MS).toISOString();
   await db
-    .prepare('UPDATE sessions SET must_change_password = 0, expires_at = ? WHERE token_hash = ?')
+    .prepare('UPDATE sessions SET expires_at = ? WHERE token_hash = ?')
     .bind(expiresAt, tokenHash)
     .run();
 
@@ -310,12 +232,12 @@ export async function handleSetOwnPassword(request: Request, db: D1Database): Pr
       crypto.randomUUID(),
       now,
       now,
-      firstPinSignIn ? 'first_pin_sign_in' : 'self_password_change',
+      'self_password_change',
     )
     .run();
 
   return json(
-    { ok: true, staff: { ...staff, mustChangePassword: false }, expiresAt },
+    { ok: true, staff, expiresAt },
     200,
     {
       'set-cookie': sessionCookie(token, isSecureRequest(request), Math.floor(SESSION_TTL_MS / 1000)),

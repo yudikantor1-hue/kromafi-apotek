@@ -362,7 +362,8 @@ async function decide(
     );
     return { ...base, status: 'rejected', message: 'validation' };
   }
-  const fields = validated.fields;
+  // A locked row keeps the values the server dictates, whatever the device sent.
+  const fields = adapter.locked ? adapter.locked(operation.itemId, validated.fields) : validated.fields;
 
   if (operation.action === 'create') {
     const existing = await db

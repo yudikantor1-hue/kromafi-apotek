@@ -3,7 +3,6 @@ import type { D1Database } from './env';
 import { apiError, json, nowIso, readJson } from './http';
 import { hashPassword } from './password';
 import { can } from './permissions';
-import { issuePin } from './pin';
 import { isValidUsername, normalizeUsername } from './username';
 
 const ROLES = ['admin', 'staf'] as const;
@@ -50,11 +49,12 @@ interface StaffInput {
   username: string;
   role: 'admin' | 'staf';
   status: string;
+  password: string;
 }
 
 type Parsed = { ok: true; value: StaffInput } | { ok: false; error: string };
 
-function parseInput(body: Record<string, unknown> | null): Parsed {
+function parseInput(body: Record<string, unknown> | null, requirePassword = true): Parsed {
   if (!body) return { ok: false, error: 'validation' };
 
   const name = typeof body.name === 'string' ? body.name.trim() : '';
@@ -70,7 +70,14 @@ function parseInput(body: Record<string, unknown> | null): Parsed {
     ? (body.status as string)
     : 'Aktif';
 
-  return { ok: true, value: { name, username, role, status } };
+  // A new account starts with a password the admin types and hands over; an
+  // update leaves the stored credential alone.
+  const password = typeof body.password === 'string' ? body.password : '';
+  if (requirePassword && (password.length < MIN_PASSWORD_LENGTH || password.length > 200)) {
+    return { ok: false, error: 'invalid_password' };
+  }
+
+  return { ok: true, value: { name, username, role, status, password } };
 }
 
 async function recordStaffAudit(
@@ -131,11 +138,7 @@ export async function handleStaffList(_request: Request, db: D1Database, actor: 
   return json({ staff: results.map(toWire), serverTime: nowIso() });
 }
 
-/**
- * Account creation no longer takes a password (10.2.9, 10.2.10). The account
- * starts with an unguessable credential nobody knows, and the admin hands over
- * a temporary PIN that the new staff member exchanges for their own password.
- */
+/** An admin creates an account with the initial password its owner will use (10.2.20). */
 export async function handleStaffCreate(request: Request, db: D1Database, actor: SessionStaff): Promise<Response> {
   if (!can(actor, 'staff:write')) return apiError(403, 'forbidden');
 
@@ -149,9 +152,7 @@ export async function handleStaffCreate(request: Request, db: D1Database, actor:
     .first<{ id: string }>();
   if (existing) return apiError(409, 'username_taken');
 
-  // A random credential nobody holds: no password can match it, so the account
-  // is reachable only through the PIN until its owner sets a password.
-  const credential = await hashPassword(`${crypto.randomUUID()}:${crypto.randomUUID()}`);
+  const credential = await hashPassword(input.password);
   const now = nowIso();
   const id = crypto.randomUUID();
 
@@ -181,30 +182,11 @@ export async function handleStaffCreate(request: Request, db: D1Database, actor:
     return apiError(409, 'username_taken');
   }
 
-  const issued = await issuePin(db, id);
   const created = await findStaff(db, id);
   const wire = created ? toWire(created) : null;
-  await recordStaffAudit(db, actor, 'create', id, null, wire, 'pin_issued');
+  await recordStaffAudit(db, actor, 'create', id, null, wire);
 
-  return json({ staff: wire, pin: issued.pin, pinExpiresAt: issued.expiresAt }, 201);
-}
-
-/** Issues a fresh PIN, replacing any PIN that was never used. */
-export async function handleStaffPin(
-  _request: Request,
-  db: D1Database,
-  actor: SessionStaff,
-  id: string,
-): Promise<Response> {
-  if (!can(actor, 'staff:write')) return apiError(403, 'forbidden');
-
-  const target = await findStaff(db, id);
-  if (!target) return apiError(404, 'not_found');
-  if (target.status !== 'Aktif') return apiError(400, 'account_inactive');
-
-  const issued = await issuePin(db, id);
-  await recordStaffAudit(db, actor, 'pin_issued', id, toWire(target), toWire(target), 'pin_issued');
-  return json({ pin: issued.pin, expiresAt: issued.expiresAt, staff: toWire(target) });
+  return json({ staff: wire }, 201);
 }
 
 /**
@@ -232,7 +214,7 @@ export async function handleStaffUpdate(
 ): Promise<Response> {
   if (!can(actor, 'staff:write')) return apiError(403, 'forbidden');
 
-  const parsed = parseInput(await readJson(request));
+  const parsed = parseInput(await readJson(request), false);
   if (!parsed.ok) return apiError(400, parsed.error);
   const input = parsed.value;
 
@@ -305,7 +287,7 @@ export async function handleStaffUpdate(
 
 /**
  * Admin-set password stays as the fallback recovery path (P5): a staff member
- * who no longer has a PIN or recovery code can be given a password directly.
+ * who no longer has a recovery code can be given a password directly.
  */
 export async function handleStaffPassword(
   request: Request,

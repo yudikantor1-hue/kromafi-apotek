@@ -24,7 +24,7 @@ app/
 │  └─ icon.svg
 ├─ src/                       React PWA
 │  ├─ App.tsx                 Session, setup, sync, and Barang actions
-│  ├─ components/             Login, Setup, Shell, Barang, Petugas, Export modal, icons
+│  ├─ components/             Login, Setup, Shell, Barang, Jasa, reference lists, Profil apotek, Petugas, Export modal, icons
 │  ├─ lib/
 │  │  ├─ api.ts               Typed API client
 │  │  ├─ idb.ts               IndexedDB: meta, items, outbox, credentials
@@ -33,7 +33,7 @@ app/
 │  │  └─ exportImport.ts      Encrypted, versioned Barang package
 │  └─ styles.css              Brand stylesheet (no Tailwind CDN)
 ├─ worker/
-│  ├─ migrations/              D1 schema, 0001–0005, applied in order
+│  ├─ migrations/              D1 schema, 0001–0009, applied in order
 │  ├─ seed/dev.sql              Local development accounts only
 │  └─ src/                      Worker API: auth, permissions, items, sync, staff, audit
 ├─ scripts/dev-api.mjs          Local API fallback (see below)
@@ -101,7 +101,7 @@ where `workerd` cannot run:
 ## Checks
 
 ```bash
-npm test        # Worker API + offline logic (68 tests)
+npm test        # Worker API + offline logic (67 tests)
 npm run typecheck
 npm run build   # production PWA build into dist/
 ```
@@ -260,8 +260,10 @@ The schedule, retention period, and who verifies a restore are still undecided (
   exactly once.
 - Only a salted SHA-256 hash is stored. Codes carry about 60 bits of entropy, so a fast hash is
   safe here and keeps password checking inside the Workers CPU budget.
-- The login screen's **Lupa password?** accepts a username, one code, and a new password. A code works
-  once, ends that account's sessions, and is refused for a deactivated account.
+- The route `POST /api/recovery/reset` accepts a username, one code, and a new password. It still
+  works, but the login screen no longer links to it (10.2.18); an admin resets a password from the
+  Petugas detail instead. A code works once, ends that account's sessions, and is refused for a
+  deactivated account.
 - Wrong codes count toward the same five-attempts-in-15-minutes lockout as a wrong password, and an
   unknown username answers exactly like a wrong code so the screen cannot be used to discover accounts.
 - This works with no internet service provider, no domain, and no third-party account — which is why
@@ -271,14 +273,14 @@ The schedule, retention period, and who verifies a restore are still undecided (
 
 - Create, edit, activate/deactivate accounts, and reset a password from the Petugas screen. **Reset
   password** is offered only while the account is **Aktif**, and the server refuses it otherwise.
-- Creating an account asks for no password. The server issues a **6-digit temporary PIN**
-  (24 hours, single use, shown once and printable) that the admin hands to the new staff member.
-  Signing in with that PIN opens only a password screen: every other route stays closed until the
-  staff member sets their own password (at least 8 characters). Issuing a new PIN invalidates the old one.
+- Creating an account asks for an **initial password** of at least 8 characters: the admin types it,
+  hands it to the staff member, and the staff member can change it from their own account detail.
+  The PIN, its sign-in route, and its screen were removed (10.2.20), and `0009_drop_pin.sql`
+  dropped the columns they used.
 - The Petugas screen shows a staff member only their own account; an admin sees every account.
 - A name and username are fixed once the account exists; only role and status can change afterwards.
-- An account whose PIN expired is recovered through an admin password reset, and a staff member can
-  change their own password from their account detail.
+- A forgotten password is recovered through an admin password reset, and a staff member can change
+  their own password from their account detail.
 - Deactivating an account or resetting its password ends its sessions immediately; a deactivated
   account is refused at sign-in with a clear message.
 - A reset sets a temporary password the admin hands over; the staff member changes it from their own

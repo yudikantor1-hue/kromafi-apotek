@@ -45,16 +45,13 @@ async function request<T>(path: string, init: RequestInit = {}): Promise<ApiResu
 export const api = {
   health: () => request<{ ok: boolean; database: string }>('/api/health'),
 
+  /** Public: the login screen shows the pharmacy name before anyone signs in. */
+  pharmacy: () => request<{ namaApotek: string }>('/api/pharmacy'),
+
   login: (username: string, password: string) =>
     request<{ staff: Staff; expiresAt: string; requiresPasswordChange?: boolean }>('/api/login', {
       method: 'POST',
       body: JSON.stringify({ username, password }),
-    }),
-
-  loginWithPin: (username: string, pin: string) =>
-    request<{ staff: Staff; expiresAt: string; requiresPasswordChange: true }>('/api/login', {
-      method: 'POST',
-      body: JSON.stringify({ username, pin }),
     }),
 
   setOwnPassword: (password: string) =>
@@ -91,7 +88,7 @@ export const api = {
   staff: () => request<{ staff: StaffAccount[]; serverTime: string }>('/api/staff'),
 
   createStaff: (input: StaffInput) =>
-    request<{ staff: StaffAccount; pin: string; pinExpiresAt: string }>('/api/staff', {
+    request<{ staff: StaffAccount }>('/api/staff', {
       method: 'POST',
       body: JSON.stringify(input),
     }),
@@ -108,23 +105,11 @@ export const api = {
       body: JSON.stringify({ password }),
     }),
 
-  staffPin: (id: string) =>
-    request<{ pin: string; expiresAt: string; staff: StaffAccount }>(
-      `/api/staff/${encodeURIComponent(id)}/pin`,
-      { method: 'POST', body: JSON.stringify({}) },
-    ),
-
   staffRecoveryCodes: (id: string) =>
     request<{ codes: string[]; staff: { id: string; username: string } }>(
       `/api/staff/${encodeURIComponent(id)}/recovery-codes`,
       { method: 'POST', body: JSON.stringify({}) },
     ),
-
-  recoveryReset: (username: string, code: string, newPassword: string) =>
-    request<{ ok: true }>('/api/recovery/reset', {
-      method: 'POST',
-      body: JSON.stringify({ username, code, newPassword }),
-    }),
 };
 
 export interface StaffAccount {
@@ -138,12 +123,14 @@ export interface StaffAccount {
   updatedAt: string;
 }
 
-/** Account creation no longer carries a password: the server issues a PIN. */
+/** A new account takes the initial password the admin hands to its owner. */
 export interface StaffInput {
   name: string;
   username: string;
   role: 'admin' | 'staf';
   status: string;
+  /** Required when creating an account, ignored when updating one. */
+  password?: string;
 }
 
 export interface AuditEvent {

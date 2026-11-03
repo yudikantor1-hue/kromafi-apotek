@@ -44,9 +44,10 @@ export function PetugasPage({ isAdmin, selfId, addSignal }: PetugasPageProps) {
   const [detailId, setDetailId] = useState<string | null>(null);
   const [formOpen, setFormOpen] = useState(false);
   const [form, setForm] = useState<FormState>(EMPTY_FORM);
+  const [formPassword, setFormPassword] = useState('');
+  const [formPasswordRepeat, setFormPasswordRepeat] = useState('');
   const [formError, setFormError] = useState('');
   const [saving, setSaving] = useState(false);
-  const [pinFor, setPinFor] = useState<{ name: string; username: string; pin: string; expiresAt: string } | null>(null);
   const [statusBusy, setStatusBusy] = useState(false);
 
   const [passwordMode, setPasswordMode] = useState<PasswordMode | null>(null);
@@ -81,6 +82,8 @@ export function PetugasPage({ isAdmin, selfId, addSignal }: PetugasPageProps) {
     handledSignal.current = addSignal;
     if (!isAdmin) return;
     setForm({ ...EMPTY_FORM });
+    setFormPassword('');
+    setFormPasswordRepeat('');
     setFormError('');
     setDetailId(null);
     setFormOpen(true);
@@ -99,6 +102,8 @@ export function PetugasPage({ isAdmin, selfId, addSignal }: PetugasPageProps) {
     setFormOpen(false);
     setFormError('');
     setForm({ ...EMPTY_FORM });
+    setFormPassword('');
+    setFormPasswordRepeat('');
   }
 
   function openPassword(mode: PasswordMode) {
@@ -119,7 +124,16 @@ export function PetugasPage({ isAdmin, selfId, addSignal }: PetugasPageProps) {
     if (!/^[a-z0-9][a-z0-9._-]{2,31}$/.test(username)) {
       return setFormError('Username 3–32 karakter: huruf kecil, angka, titik, garis bawah, atau strip.');
     }
-    const input: StaffInput = { name, username, role: form.role, status: form.status };
+    if (formPassword.length < 8) return setFormError('Password minimal 8 karakter.');
+    if (formPassword !== formPasswordRepeat) return setFormError('Password tidak sama.');
+
+    const input: StaffInput = {
+      name,
+      username,
+      role: form.role,
+      status: form.status,
+      password: formPassword,
+    };
 
     setSaving(true);
     try {
@@ -128,13 +142,6 @@ export function PetugasPage({ isAdmin, selfId, addSignal }: PetugasPageProps) {
         setFormError(ERROR_MESSAGES[result.error ?? 'validation'] ?? 'Akun tidak dapat dibuat.');
         return;
       }
-      // The PIN is shown exactly once, so the admin must record it now.
-      setPinFor({
-        name: result.data.staff?.name ?? name,
-        username: result.data.staff?.username ?? username,
-        pin: result.data.pin,
-        expiresAt: result.data.pinExpiresAt,
-      });
       await load();
       closeForm();
     } finally {
@@ -394,41 +401,6 @@ export function PetugasPage({ isAdmin, selfId, addSignal }: PetugasPageProps) {
         </div>
       )}
 
-      {pinFor && (
-        <div
-          className="overlay"
-          role="presentation"
-          onClick={(event) => event.target === event.currentTarget && setPinFor(null)}
-        >
-          <div className="modal" role="dialog" aria-modal="true" aria-labelledby="pin-title">
-            <div className="modal-header">
-              <h3 className="title" id="pin-title">PIN sementara — {pinFor.name}</h3>
-              <button type="button" className="icon-button" aria-label="Tutup" onClick={() => setPinFor(null)}>
-                &times;
-              </button>
-            </div>
-            <div className="modal-body stack">
-              <p className="notice notice-warning" role="alert">
-                Catat atau cetak sekarang. PIN hanya ditampilkan sekali, berlaku 24 jam sampai{' '}
-                {new Date(pinFor.expiresAt).toLocaleString('id-ID')}, dan hanya bisa dipakai satu kali.
-              </p>
-              <p className="pin-value" aria-label={'PIN sementara ' + pinFor.pin}>{pinFor.pin}</p>
-              <p className="small muted">
-                Serahkan kepada {pinFor.username}. Saat masuk pertama kali, petugas wajib membuat password sendiri.
-              </p>
-              <div className="modal-actions">
-                <button type="button" className="btn btn-secondary" onClick={() => window.print()}>
-                  Cetak
-                </button>
-                <button type="button" className="btn btn-primary" onClick={() => setPinFor(null)}>
-                  Selesai
-                </button>
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
-
       {formOpen && (
         <div
           className="overlay"
@@ -475,10 +447,33 @@ export function PetugasPage({ isAdmin, selfId, addSignal }: PetugasPageProps) {
                 />
               </label>
 
+              <label className="field">
+                <span className="field-label">Password awal <span className="required">*</span></span>
+                <input
+                  className="input"
+                  type="password"
+                  autoComplete="new-password"
+                  value={formPassword}
+                  onChange={(event) => setFormPassword(event.target.value)}
+                  placeholder="Minimal 8 karakter"
+                />
+              </label>
+
+              <label className="field">
+                <span className="field-label">Ulangi password awal <span className="required">*</span></span>
+                <input
+                  className="input"
+                  type="password"
+                  autoComplete="new-password"
+                  value={formPasswordRepeat}
+                  onChange={(event) => setFormPasswordRepeat(event.target.value)}
+                  placeholder="Ulangi password"
+                />
+              </label>
+
               <p className="notice notice-info" role="status">
-                Nama dan username tidak dapat diubah setelah akun dibuat. PIN sementara 6 angka dibuat setelah akun
-                disimpan: berlaku 24 jam, hanya sekali pakai, dan saat masuk pertama kali petugas wajib membuat
-                password sendiri.
+                Nama dan username tidak dapat diubah setelah akun dibuat. Serahkan password awal ini kepada
+                petugas; setelah masuk, mereka dapat menggantinya sendiri dari detail akunnya.
               </p>
 
               <fieldset className="field" style={{ border: 'none', padding: 0, margin: 0 }}>

@@ -103,7 +103,7 @@ Goal: create the production application foundation and secure access before enab
 
 ### 3.1 Application shell
 
-- **3.1.1** Create the production app in `app/` using the approved target architecture and reproduce the approved UI shell without modifying `UI/`. — **100%** (shell, login, PIN provisioning, drawer, and the Barang screen are implemented; the other 10 menus are listed but disabled until their own phase)
+- **3.1.1** Create the production app in `app/` using the approved target architecture and reproduce the approved UI shell without modifying `UI/`. — **100%** (shell, login, drawer, and the Barang screen are implemented; the other 10 menus are listed but disabled until their own phase)
 
 ### 3.2 Worker, D1, and deployment configuration
 
@@ -133,9 +133,9 @@ Goal: create the production application foundation and secure access before enab
 
 ### 3.8 Account provisioning with a temporary PIN — 100%
 
-- **3.8.1** Replace the initial-password field with a temporary one-time PIN that the new staff member uses to sign in and set their own password. — **100%** (implemented: 6 digits, 24 hours, single use, PBKDF2-hashed, shown once with a print button; signing in with it opens only the password screen, and every other API route answers 403 password_change_required until a password of at least 8 characters is set)
+- **3.8.1** Replace the initial-password field with a temporary one-time PIN that the new staff member uses to sign in and set their own password. — **100%** (implemented: 6 digits, 24 hours, single use, PBKDF2-hashed, shown once with a print button; signing in with it opens only the password screen, and every other API route answers 403 password_change_required until a password of at least 8 characters is set). **Superseded on 3 November 2026 (10.2.18):** the login screen no longer accepts a PIN and the screen that exchanged it for a password was removed, so the server-side PIN is now unused by the app.
 - **3.8.2** Allow any number of admin accounts, as decided in 10.2.9, while keeping the guard that the last active admin cannot be removed. — **100%** (the app already accepts multiple admins and refuses to remove the last active one)
-- **3.8.3** Cover the PIN flow with tests: only six digits are accepted, the PIN works exactly once, it is refused after 24 hours, it is refused for a deactivated account, a new PIN invalidates the old one, and the forced password screen blocks the app until a password is set. — **100%** (six tests in tests/worker.test.ts, 68 tests in total; also verified end to end against the local API)
+- **3.8.3** Cover the PIN flow with tests: only six digits are accepted, the PIN works exactly once, it is refused after 24 hours, it is refused for a deactivated account, a new PIN invalidates the old one, and the forced password screen blocks the app until a password is set. — **100%** (three tests in tests/worker.test.ts (account provisioning), 67 tests in total; also verified end to end against the local API)
 
 ---
 
@@ -468,7 +468,7 @@ These are not blockers for an unrelated first slice. Resolve each before impleme
   - Why: 10.2.9 makes the Petugas menu the only place accounts are created, but the current form asks the admin to type an initial password for the other person instead of issuing a temporary PIN. See 3.8.
   - Owner: client. State: **Answered** (2 November 2026).
   - Recorded answer: a **6-digit numeric PIN**, valid for **24 hours**, usable **once**, shown to the admin exactly once at creation and printable on paper. Signing in with the PIN does not open the app: it opens a mandatory screen where the staff member sets their own password (at least 8 characters), and only then is the session usable. The PIN is stored as a salted hash like the recovery codes, a deactivated account cannot use it, and issuing a new PIN invalidates the previous one.
-  - Implemented in 3.8 (worker/src/pin.ts, the login PIN branch, and the forced password screen).
+  - Implemented in 3.8 (worker/src/pin.ts, the login PIN branch, and the forced password screen). **Removed on 3 November 2026** (10.2.20): the PIN, its login branch, its route, and its screen are gone.
 
 - **10.2.11 — What should the single "Edit" button on a staff member's own account detail do?**
   - Why: the client asked for exactly one button on the own account detail, and said a name and username must not change, while the server refuses to let anyone change their own role or status. That leaves only a self-service password change, but the client has not confirmed it.
@@ -509,6 +509,24 @@ These are not blockers for an unrelated first slice. Resolve each before impleme
   - Owner: client. State: **Answered** (3 November 2026).
   - Recorded answer: **no, keep separate tables** (`doctors`, `cabinets`, `payment_methods`, `suppliers`). A typed foreign key must not be able to point at the wrong kind of record, each list will need its own fields (contact details, a cash flag, a physical location), and one shared table would weaken per-list name uniqueness. They share one column pattern and one generic screen in the app instead.
 
+- **10.2.18 — How should the login and pharmacy-profile screens behave for staff?**
+  - Why: the client asked for a simpler login and a profile that staff cannot edit, without an explanatory warning.
+  - Owner: client. State: **Answered** (3 November 2026).
+  - Recorded answer: the login screen keeps one password form. The *Punya PIN sementara?* link, the *Lupa password?* link, and the screen that exchanged a PIN for a password are removed from the app; the recovery route stays on the server but the app no longer calls it, and an admin onboards a new account with **Reset password** in Petugas. The login title shows the **pharmacy name from the database** through the public `GET /api/pharmacy`, cached on the device so it also appears offline. On **Profil apotek**, Nama apotek and Alamat stay visible but are read-only for staff, with the *hanya dapat diubah oleh admin* warning removed; an admin still edits them.
+  - Implemented in `src/components/LoginPage.tsx`, `src/App.tsx`, `src/components/ProfilApotekPage.tsx`, `worker/src/index.ts`, and the removed `SetPasswordPage.tsx`.
+
+- **10.2.19 — Should Tunai be a fixed payment method?**
+  - Why: every sale needs a payment method that is always available, and a deactivated Tunai would leave the cashier without a fallback.
+  - Owner: client. State: **Answered** (3 November 2026).
+  - Recorded answer: **Tunai is seeded and locked.** Migration `0008_payment_tunai.sql` inserts `payment_method_tunai` with the name `Tunai` and status `Aktif`; the Worker rewrites its name and status on every push, so neither a staff member nor an admin can rename or deactivate it, and the screen hides the edit action and labels the row *Wajib*. Other payment methods keep the normal active/inactive lifecycle.
+  - Implemented in `worker/migrations/0008_payment_tunai.sql`, `worker/src/reference.ts`, `worker/src/entities.ts`, `worker/src/sync.ts`, and `src/components/ReferencePage.tsx`.
+
+- **10.2.20 — Should the temporary PIN stay now that the login screen has one password form?**
+  - Why: with no PIN entry, the PIN issued at account creation could never be used, so creating an account ended in a dead end.
+  - Owner: client. State: **Answered** (3 November 2026).
+  - Recorded answer: **remove the PIN entirely.** Creating an account now takes an initial password of at least 8 characters that the admin types and hands to its owner. The PIN generator, the `POST /api/staff/:id/pin` route, the `POST /api/login` PIN branch, the forced-password guard, and the PIN dialog are gone; migration `0009_drop_pin.sql` drops `staff.pin_hash`, `pin_salt`, `pin_iterations`, `pin_expires_at`, and `sessions.must_change_password`. A staff member changes their own password from their account detail, and an admin can still reset it (10.2.14).
+  - Implemented in `worker/src/staff.ts`, `worker/src/auth.ts`, `worker/migrations/0009_drop_pin.sql`, `src/components/PetugasPage.tsx`, and `src/lib/api.ts`.
+
 ### 10.3 Decisions already settled — do not ask again
 
 - **10.3.1** The product is a PWA for one pharmacy, used by multiple staff on multiple devices.
@@ -546,7 +564,7 @@ Goal: prove the approved PWA + Cloudflare architecture with one complete, low-ri
 - **11.3.4** Two-device edits preserve both audit events in chronological history; the latest valid device-reported timestamp determines the active value, and clock uncertainty is surfaced for review. — **Verified**
 - **11.3.5** Each operation records its author, and the server compares that author's deactivation time with the operation's device time when the operation is processed: later work is cancelled even when an active account sends the queue, earlier work is applied and noted, and in-flight ledger rows are closed on deactivation. Cancelled or held operations stay visible and auditable. — **Verified**
 - **11.3.6** A new device can initialize Barang data from Cloudflare sync or the encrypted export package; import changes only the local cache and is blocked when the target has pending work. — **Verified**
-- **11.3.7** Automated tests cover online persistence, offline reload, two-device sync, idempotency, author-based deactivation, clock conflicts, import validation, and permissions. — **Verified** (68 tests)
+- **11.3.7** Automated tests cover online persistence, offline reload, two-device sync, idempotency, author-based deactivation, clock conflicts, import validation, and permissions. — **Verified** (67 tests)
 
 ### 11.4 Implementation todo list
 
@@ -575,16 +593,18 @@ Goal: prove the approved PWA + Cloudflare architecture with one complete, low-ri
 
 - **12.1.1** `UI/` contains the client-approved prototype and workflow baseline for all 18 menus, including flows and browser-local workflow simulation. It is not the production source.
 - **12.1.2** `app/` contains the production application for the Barang and reference-data slices: React/Vite PWA, Worker API, D1 migrations, offline outbox, idempotent sync, conflict history, staff administration, recovery codes, and encrypted export/import.
-- **12.1.3** Automated checks pass: `npm run typecheck` is clean, `npm test` runs 68 tests across the Worker and offline suites, and `npm run build` produces the deployable PWA.
+- **12.1.3** Automated checks pass: `npm run typecheck` is clean, `npm test` runs 67 tests across the Worker and offline suites, and `npm run build` produces the deployable PWA.
 - **12.1.4** The app is deployed as a trial to the client's own Cloudflare account at https://kromafi-apotek.kromafi.workers.dev, with D1 `kromafi-apotek` (`db477559-d51d-40f3-a822-d1cb2c21904e`, region APAC) migrated and a first admin (`admin`) created by `npm run staff:bootstrap -- --remote --username admin`. Staff sign in with a username, not an email.
 - **12.1.5** Workers compatibility is verified on the real `workerd` runtime: `wrangler dev` runs against a local D1 database, and health, sign-in, `401` handling, idempotent sync, and browser reads behave as designed. The earlier `write EOF` fault was an environment defect — a missing Visual C++ 2015–2022 Redistributable (x64) left `workerd.exe` unable to load its UCRT libraries — and installing it fixed the machine.
 - **12.1.6** `workerd` caps PBKDF2 at 100,000 iterations, so the deployed Worker rejected the earlier 210,000-iteration hashes with `500` on every sign-in while local runs stayed green. The setting is now 100,000 — the runtime maximum — and sign-in on the deployed Worker returned `200`. Because older credentials cannot be re-derived, `npm run staff:bootstrap -- --reset` replaces a password and ends its sessions.
 - **12.1.7** A full local backup drill passed: export, restore into an empty database, identical row counts in all seven tables, and the restored database accepted a sign-in and served the same record. Cloudflare Time Travel covers the last 7 days; the export is the portable copy.
-- **12.1.8** Known limits: seven screens are implemented (Barang, Petugas, Lemari, Metode pembayaran, Dokter, Distributor, Profil apotek) and the other 10 prototype menus are listed but disabled; the custom domain and second admin are open (10.2.1); backup schedule and retention are open (10.2.2); daily close has no prototype workflow (10.2.4).
+- **12.1.8** Known limits: eight screens are implemented (Barang, Jasa, Petugas, Lemari, Metode pembayaran, Dokter, Distributor, Profil apotek) and the other 10 prototype menus are listed but disabled; the custom domain and second admin are open (10.2.1); backup schedule and retention are open (10.2.2); daily close has no prototype workflow (10.2.4).
 - **12.1.9** Selling model confirmed by the client: each buyer uses **their own** Cloudflare account, so one installation means one account, one Worker, one database, and one pharmacy's data. The install sequence in [app/README.md](app/README.md) is the per-buyer procedure.
 - **12.1.10** Migrations `0001`–`0007` are applied on the remote D1 database, and Worker version `ccf2d495-55f6-4bd1-97b6-a2a7070ca8b3` (commit `92432c9`) is live with the reference screens and the shared goods-and-services catalogue. Offline work is attributed to the account that recorded it and cancelled at processing time when that account was already deactivated (10.2.12); the device now drops such work silently (10.2.13). A password reset is offered and accepted only for an account that is Aktif (10.2.14). Live checks after that deploy: `/api/health` `200`, `/api/sync/snapshot` and `POST /api/staff/:id/password` without a session `401`, and the served bundle carries the new Jasa, Metode pembayaran, Profil apotek, and Petugas text.
 
-- **12.1.11** The Jasa, Lemari, Metode pembayaran, Dokter, Distributor, and Profil apotek screens are implemented on the same offline-sync engine as Barang. Migration `0006` adds `cabinets`, `payment_methods`, `doctors`, `suppliers`, and `settings`; migration `0007` adds `items.type`, so goods and services share one catalogue and one name space (10.2.16). Migrations `0006` and `0007` are applied to both the local and the remote D1 database.
+- **12.1.12** Worker version `a9aee398-b26c-4479-b5bf-a1d7e0dcb09a` serves the one-form login, the read-only staff profile, and the locked Tunai method (10.2.18–10.2.20). Live checks after that deploy: `/api/health` `200`, `/api/pharmacy` returns the pharmacy name without a session, `POST /api/staff/:id/pin` answers `404`, and the served bundle is `index-B_seKYx9.js`.
+
+- **12.1.11** The Jasa, Lemari, Metode pembayaran, Dokter, Distributor, and Profil apotek screens are implemented on the same offline-sync engine as Barang. Migration `0006` adds `cabinets`, `payment_methods`, `doctors`, `suppliers`, and `settings`; migration `0007` adds `items.type`, so goods and services share one catalogue and one name space (10.2.16). Migrations `0006` and `0007` are applied to both the local and the remote D1 database. Migration `0008_payment_tunai.sql` seeds the locked Tunai payment method (10.2.19) and `0009_drop_pin.sql` removes the PIN columns (10.2.20); both are applied to the local and the remote D1 database.
 
 ### 12.2 Target outcome for version 1.0
 
@@ -756,7 +776,7 @@ The approved prototype is the default baseline for version 1.0 screen scope and 
 
 - **16.1.1** Phase 1 stays at 25% until the full acceptance checklist exists (1.2.2, 1.3.1).
 - **16.1.2** Phase 2 stays at 25% until the other 10 menus have approved backend rules (2.10.1).
-- **16.1.3** Phase 3 is 100%: foundation, database, authentication (password and temporary PIN), authorization, audit limits, tests, and the Barang screen are complete and verified.
+- **16.1.3** Phase 3 is 100%: foundation, database, authentication (password), authorization, audit limits, tests, and the Barang screen are complete and verified.
 - **16.1.4** Phase 7 is 25% because local backup and offline sync work but cloud restore and two-device testing are pending.
 - **16.1.5** Phase 9 is 25% because a trial deployment exists but the agreed domain, data onboarding, training, and handover do not.
 - **16.1.6** The verified facts behind these values are listed in 12.1; B15, B16, and B17 are approved and recorded in 10.1.17–10.1.19.

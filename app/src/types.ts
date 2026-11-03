@@ -53,6 +53,9 @@ export interface ItemPayload {
  */
 export type ReferenceEntity = 'cabinet' | 'payment_method' | 'doctor' | 'supplier';
 
+/** The payment method the server always keeps present and active (10.2.19). */
+export const LOCKED_PAYMENT_METHOD_ID = 'payment_method_tunai';
+
 export interface Reference {
   id: string;
   nama: string;
