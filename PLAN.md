@@ -156,7 +156,7 @@ Goal: deliver the approved reference-data, goods-receipt, and cashier workflows 
 
 ### 4.3 Sales
 
-- **4.3.1** Build sales with item/service lines, approved pricing/discount/payment rules, stock checks, locking, and receipt output sized for the 58 mm thermal printer chosen in 10.2.3. — **0%**
+- **4.3.1** Build sales with item/service lines, approved pricing/discount/payment rules, stock checks, locking, and receipt output sized for the 58 mm thermal printer chosen in 10.2.3. — **25%** (the server applies a nota with its lines, stock decrement, stock movement, and lock, and serves history by cursor — migration `0010_sales.sql`, `worker/src/sales.ts`, six new tests; the Penjualan screen, form, and 58 mm receipt are next)
 
 ### 4.4 Consistency
 
@@ -583,6 +583,17 @@ These are not blockers for an unrelated first slice. Resolve each before impleme
   - Owner: client. State: **Answered** (3 November 2026).
   - Recorded answer: **no expiry date on a sale line.** `tanggal_expired` is removed from the planned `sale_lines` table, so a sale records no expiry in version 1. `batch` stays on the line as optional free text typed by the cashier. Expiry tracking belongs to the planned batch and invoice work.
   - Not implemented yet: the Penjualan menu and the `sales`/`sale_lines` tables are still planned.
+
+- **10.2.30 — How should an already-saved nota be edited?**
+  - Why: the approved prototype lets a cashier edit an unlocked nota, but a saved nota has already moved stock and already has lines in D1, so editing it means adjusting stock and replacing lines without losing history.
+  - Owner: client. State: **Open**.
+  - Options: (a) replace the nota and post an adjustment movement for the stock difference; (b) cancel the old nota and create a correction nota; (c) keep a saved nota read-only and require a new nota.
+  - Note: creating, locking, printing, and viewing a nota are built on the server; editing waits for this answer.
+
+- **10.2.31 — May an unlocked nota be deleted?**
+  - Why: the prototype deletes an unlocked nota, but a sale has already reduced stock and left audit rows, so deleting it must either restore stock or keep the nota as cancelled.
+  - Owner: client. State: **Open**.
+  - Options: (a) keep the nota and mark it cancelled with the stock restored; (b) delete the rows and restore stock, leaving only the audit trail; (c) forbid deleting a saved nota.
 
 ### 10.3 Decisions already settled — do not ask again
 
