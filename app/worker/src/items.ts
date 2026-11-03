@@ -3,6 +3,7 @@ import { can } from './permissions';
 import type { D1Database } from './env';
 import { apiError, json, nowIso } from './http';
 import { loadReferenceBundle } from './reference';
+import { loadSalesPage } from './sales';
 
 export const ITEM_STATUSES = ['Aktif', 'Tidak aktif'] as const;
 export type ItemStatus = (typeof ITEM_STATUSES)[number];
@@ -129,13 +130,17 @@ export async function loadItems(db: D1Database): Promise<ItemWire[]> {
  * One snapshot carries every list a device needs offline: Barang, services,
  * the reference screens, and the pharmacy profile.
  */
-export async function handleSnapshot(_request: Request, db: D1Database, staff: SessionStaff): Promise<Response> {
+export async function handleSnapshot(request: Request, db: D1Database, staff: SessionStaff): Promise<Response> {
   if (!can(staff, 'items:read')) return apiError(403, 'forbidden');
   const serverTime = nowIso();
   const reference = await loadReferenceBundle(db);
+  // Only notas newer than the device cursor travel here; older history arrives
+  // page by page (10.2.28), so a sync never reads the whole sales history.
+  const salesSince = (new URL(request.url).searchParams.get('salesSince') ?? '').trim();
   return json({
     items: await loadItems(db),
     ...reference,
+    sales: await loadSalesPage(db, salesSince),
     cursor: serverTime,
     serverTime,
     staff,

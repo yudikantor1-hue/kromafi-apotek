@@ -3,6 +3,7 @@ import type { D1Database } from './env';
 import { ADAPTERS, type EntityAdapter, type SyncEntity } from './entities';
 import { apiError, isIsoTimestamp, json, nowIso, readJson } from './http';
 import type { ItemWire } from './items';
+import { findSale, insertSale, setSaleLock, validateSalePayload } from './sales';
 
 const CLOCK_SKEW_MS = 5 * 60 * 1000;
 const MAX_BATCH = 50;
@@ -22,6 +23,7 @@ export interface SyncResult {
 }
 
 interface OperationInput {
+  kind: 'entity';
   operationId: string;
   itemId: string;
   authorId: string;
@@ -32,9 +34,22 @@ interface OperationInput {
   adapter: EntityAdapter;
 }
 
+/** A nota travels as one operation carrying its header and lines (10.2.28). */
+interface SaleOperationInput {
+  kind: 'sale';
+  operationId: string;
+  itemId: string;
+  authorId: string;
+  action: 'create' | 'update';
+  baseVersion: number;
+  deviceTime: string;
+  payload: unknown;
+}
+
 /** The account that recorded the work, read fresh when the work is processed. */
 interface OperationAuthor {
   id: string;
+  name: string;
   role: 'admin' | 'staf';
   status: string;
   deactivated_at: string | null;
@@ -48,22 +63,23 @@ interface StoredOperation {
 const isEntity = (value: unknown): value is SyncEntity =>
   typeof value === 'string' && Object.prototype.hasOwnProperty.call(ADAPTERS, value);
 
-function parseOperation(raw: unknown): OperationInput | { error: string } {
+function parseOperation(raw: unknown): OperationInput | SaleOperationInput | { error: string } {
   if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return { error: 'invalid_operation' };
   const input = raw as Record<string, unknown>;
 
   const operationId = typeof input.operationId === 'string' ? input.operationId.trim() : '';
   if (operationId.length < 8 || operationId.length > 120) return { error: 'invalid_operation_id' };
 
-  if (!isEntity(input.entity)) return { error: 'unsupported_entity' };
-  const adapter = ADAPTERS[input.entity];
+  const saleEntity = input.entity === 'sale';
+  if (!saleEntity && !isEntity(input.entity)) return { error: 'unsupported_entity' };
+  const adapter = saleEntity ? null : ADAPTERS[input.entity as SyncEntity];
 
   // The pharmacy profile is a single row with a fixed id; every other record
   // carries a device-generated identifier.
-  const minIdLength = adapter.entity === 'settings' ? 1 : 8;
+  const minIdLength = adapter?.entity === 'settings' ? 1 : 8;
   const itemId = typeof input.itemId === 'string' ? input.itemId.trim() : '';
   if (itemId.length < minIdLength || itemId.length > 120) return { error: 'invalid_item_id' };
-  if (adapter.entity === 'settings' && itemId !== 'apotek') return { error: 'invalid_item_id' };
+  if (adapter?.entity === 'settings' && itemId !== 'apotek') return { error: 'invalid_item_id' };
 
   // A device records who made the change while it is offline, so the server can
   // judge that account even when someone else sends the queue later (10.2.12).
@@ -79,7 +95,21 @@ function parseOperation(raw: unknown): OperationInput | { error: string } {
 
   if (!isIsoTimestamp(input.deviceTime)) return { error: 'invalid_device_time' };
 
+  if (saleEntity) {
+    return {
+      kind: 'sale',
+      operationId,
+      itemId,
+      authorId,
+      action: input.action,
+      baseVersion,
+      deviceTime: input.deviceTime,
+      payload: input.payload,
+    };
+  }
+
   return {
+    kind: 'entity',
     operationId,
     itemId,
     authorId,
@@ -87,7 +117,7 @@ function parseOperation(raw: unknown): OperationInput | { error: string } {
     baseVersion,
     deviceTime: input.deviceTime,
     payload: input.payload,
-    adapter,
+    adapter: adapter as EntityAdapter,
   };
 }
 
@@ -104,17 +134,26 @@ function withPusher(note: string, authorId: string, pushedById: string): string 
 
 async function findAuthor(db: D1Database, id: string): Promise<OperationAuthor | null> {
   return db
-    .prepare('SELECT id, role, status, deactivated_at FROM staff WHERE id = ?')
+    .prepare('SELECT id, name, role, status, deactivated_at FROM staff WHERE id = ?')
     .bind(id)
     .first<OperationAuthor>();
 }
 
+interface AuditableOperation {
+  operationId: string;
+  itemId: string;
+  action: string;
+  baseVersion: number;
+  deviceTime: string;
+  payload: unknown;
+}
+
 async function recordAudit(
   db: D1Database,
-  entity: SyncEntity,
+  entity: string,
   staffId: string,
   deviceId: string,
-  operation: OperationInput,
+  operation: AuditableOperation,
   outcome: 'applied' | 'superseded' | 'conflict' | 'rejected',
   serverTime: string,
   before: unknown,
@@ -572,7 +611,7 @@ async function applyOperation(
       author.id,
       deviceId,
       author.id,
-      parsed.adapter.entity,
+      parsed.kind === 'sale' ? 'sale' : parsed.adapter.entity,
       parsed.itemId,
       parsed.action,
       parsed.deviceTime,
@@ -599,7 +638,9 @@ async function applyOperation(
 
   let result: SyncResult;
   try {
-    result = await decide(db, author, staff.id, deviceId, parsed, serverTime);
+    result = parsed.kind === 'sale'
+      ? await applySale(db, author, staff.id, deviceId, parsed, serverTime)
+      : await decide(db, author, staff.id, deviceId, parsed, serverTime);
   } catch (error) {
     console.error('sync operation failed', error);
     result = {
@@ -616,6 +657,101 @@ async function applyOperation(
     .run();
 
   return result;
+}
+
+/**
+ * Applies one nota. A create writes the nota with its lines and stock effects;
+ * an update only toggles the lock, because a locked nota is never edited.
+ */
+async function applySale(
+  db: D1Database,
+  author: OperationAuthor,
+  pushedById: string,
+  deviceId: string,
+  operation: SaleOperationInput,
+  serverTime: string,
+): Promise<SyncResult> {
+  const base = { operationId: operation.operationId, itemId: operation.itemId };
+  const note = (value: string) => withPusher(value, author.id, pushedById);
+  const existing = await findSale(db, operation.itemId);
+
+  // Work recorded by an account that is no longer active is cancelled (10.2.12).
+  if (author.status !== 'Aktif') {
+    await recordAudit(db, 'sale', author.id, deviceId, operation, 'rejected', serverTime, null, operation.payload, note('account_deactivated'), null);
+    return { ...base, status: 'cancelled', message: 'account_deactivated' };
+  }
+
+  if (Date.parse(operation.deviceTime) > Date.parse(serverTime) + CLOCK_SKEW_MS) {
+    await recordAudit(db, 'sale', author.id, deviceId, operation, 'conflict', serverTime, existing, operation.payload, note('clock_skew'), null);
+    return { ...base, status: 'conflict', message: 'clock_skew', record: existing ?? undefined };
+  }
+
+  if (operation.action === 'update') {
+    if (!existing) {
+      await recordAudit(db, 'sale', author.id, deviceId, operation, 'rejected', serverTime, null, operation.payload, note('not_found'), null);
+      return { ...base, status: 'rejected', message: 'not_found' };
+    }
+
+    const locked = (operation.payload as { locked?: unknown } | null)?.locked;
+    if (typeof locked !== 'boolean') {
+      await recordAudit(db, 'sale', author.id, deviceId, operation, 'rejected', serverTime, existing, operation.payload, note('validation'), null);
+      return { ...base, status: 'rejected', message: 'validation' };
+    }
+    if (!locked && author.role !== 'admin') {
+      await recordAudit(db, 'sale', author.id, deviceId, operation, 'rejected', serverTime, existing, operation.payload, note('forbidden'), null);
+      return { ...base, status: 'rejected', message: 'forbidden' };
+    }
+    if (operation.baseVersion !== existing.version) {
+      await recordAudit(db, 'sale', author.id, deviceId, operation, 'conflict', serverTime, existing, operation.payload, note('stale_edit'), existing.version);
+      return { ...base, status: 'conflict', message: 'stale_edit', record: existing };
+    }
+
+    const updated = await setSaleLock(
+      db,
+      operation.itemId,
+      locked,
+      operation.deviceTime,
+      serverTime,
+      author.id,
+      existing.version + 1,
+    );
+    if (!updated.ok) {
+      await recordAudit(db, 'sale', author.id, deviceId, operation, 'rejected', serverTime, existing, operation.payload, note(updated.message), null);
+      return { ...base, status: 'rejected', message: updated.message };
+    }
+
+    const message = locked ? 'locked' : 'unlocked';
+    await recordAudit(db, 'sale', author.id, deviceId, operation, 'applied', serverTime, existing, updated.sale, note(message), updated.sale.version);
+    return { ...base, status: 'applied', message, record: updated.sale, version: updated.sale.version };
+  }
+
+  if (existing) {
+    await recordAudit(db, 'sale', author.id, deviceId, operation, 'conflict', serverTime, existing, operation.payload, note('record_exists'), existing.version);
+    return { ...base, status: 'conflict', message: 'record_exists', record: existing };
+  }
+
+  const validated = validateSalePayload(operation.payload);
+  if (!validated.ok) {
+    await recordAudit(db, 'sale', author.id, deviceId, operation, 'rejected', serverTime, null, operation.payload, note(validated.message), null);
+    return { ...base, status: 'rejected', message: 'validation' };
+  }
+
+  const inserted = await insertSale(db, {
+    id: operation.itemId,
+    fields: validated.value,
+    deviceTime: operation.deviceTime,
+    serverTime,
+    staffId: author.id,
+    staffName: author.name,
+  });
+
+  if (!inserted.ok) {
+    await recordAudit(db, 'sale', author.id, deviceId, operation, 'rejected', serverTime, null, operation.payload, note(inserted.message), null);
+    return { ...base, status: 'rejected', message: inserted.message };
+  }
+
+  await recordAudit(db, 'sale', author.id, deviceId, operation, 'applied', serverTime, null, inserted.sale, note('sale_created'), 1);
+  return { ...base, status: 'applied', message: 'sale_created', record: inserted.sale, version: 1 };
 }
 
 export async function handlePush(request: Request, db: D1Database, staff: SessionStaff): Promise<Response> {

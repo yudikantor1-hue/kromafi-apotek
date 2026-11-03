@@ -2,6 +2,7 @@ import { getSessionStaff, handleLogin, handleLogout, handleMe, handleSetOwnPassw
 import type { Env } from './env';
 import { apiError, isSameOriginRequest, json, nowIso } from './http';
 import { handleAudit, handleItemList, handleSnapshot } from './items';
+import { handleSalesPage } from './sales';
 import { roleAllows } from './permissions';
 import { handleRecoveryGenerate, handleRecoveryReset } from './recovery';
 import { loadSettings } from './reference';
@@ -45,6 +46,12 @@ async function route(request: Request, env: Env): Promise<Response> {
     const staff = await getSessionStaff(request, env.DB);
     if (!staff) return apiError(401, 'unauthenticated');
     return handleSnapshot(request, env.DB, staff);
+  }
+
+  if (path === '/api/sales' && method === 'GET') {
+    const staff = await getSessionStaff(request, env.DB);
+    if (!staff) return apiError(401, 'unauthenticated');
+    return handleSalesPage(request, env.DB, staff);
   }
 
   if (path === '/api/sync/push' && method === 'POST') {

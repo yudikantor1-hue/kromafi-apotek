@@ -50,6 +50,20 @@ export class TestDatabase {
     return { success: true };
   }
 
+  /** Stands in for D1's batch: every statement runs, in order, in one transaction. */
+  async batch(statements: Array<{ run(): Promise<unknown> }>): Promise<unknown[]> {
+    const results: unknown[] = [];
+    this.db.exec('BEGIN');
+    try {
+      for (const statement of statements) results.push(await statement.run());
+      this.db.exec('COMMIT');
+    } catch (error) {
+      this.db.exec('ROLLBACK');
+      throw error;
+    }
+    return results;
+  }
+
   private tableExists(name: string): boolean {
     const row = this.db
       .prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name = ?")
