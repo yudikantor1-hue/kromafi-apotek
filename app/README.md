@@ -25,7 +25,7 @@ app/
 │  └─ icon.svg
 ├─ src/                       React PWA
 │  ├─ App.tsx                 Session, setup, sync, and Barang actions
-│  ├─ components/             Login, Setup, Shell, Barang, Jasa, reference lists, Profil apotek, Petugas, Export modal, icons
+│  ├─ components/             Login, Setup, Shell, Penjualan, Barang, Jasa, reference lists, Profil apotek, Petugas, Export modal, icons
 │  ├─ lib/
 │  │  ├─ api.ts               Typed API client
 │  │  ├─ idb.ts               IndexedDB: meta, items, outbox, credentials
@@ -34,7 +34,7 @@ app/
 │  │  └─ exportImport.ts      Encrypted, versioned Barang package
 │  └─ styles.css              Brand stylesheet (no Tailwind CDN)
 ├─ worker/
-│  ├─ migrations/              D1 schema, 0001–0009, applied in order
+│  ├─ migrations/              D1 schema, 0001–0010, applied in order
 │  ├─ seed/dev.sql              Local development accounts only
 │  └─ src/                      Worker API: auth, permissions, items, sync, staff, audit
 ├─ scripts/dev-api.mjs          Local API fallback (see below)
@@ -102,7 +102,7 @@ where `workerd` cannot run:
 ## Checks
 
 ```bash
-npm test        # Worker API + offline logic (67 tests)
+npm test        # Worker API + offline logic (76 tests)
 npm run typecheck
 npm run build   # production PWA build into dist/
 ```
@@ -254,6 +254,15 @@ The schedule, retention period, and who verifies a restore are still undecided (
   be corrected and re-sent or discarded. Work the centre cancels (10.2.13) is removed from the device
   silently: it is never re-sent, never listed in the outbox, and raises no notice, because the server
   decides it in the background.
+
+**Penjualan (sales)**
+
+- A nota is one operation: the header, its lines, the stock decrement, and one `stock_movements` row per goods line are written in a single D1 transaction (10.2.27). A nota whose item is missing or whose payment method is inactive is refused whole, so a half-written sale cannot exist.
+- Every amount is recomputed on the server, including the price actually received per unit (10.2.24); the device never sends a total it expects to be trusted.
+- A loro may be saved offline and printed before it syncs, because its id is a device UUID and the receipt prints no number (10.2.25, 10.2.26).
+- A saved nota can be corrected while it is unlocked: its lines are replaced and stock moves only by the difference, recorded as `sale` when units leave and `koreksi` when they come back (10.2.30). Any staff member locks a nota; only an admin unlocks it.
+- History arrives by cursor (`server_updated_at`): a device asks for notas newer than its cursor, and a fresh device receives the newest page first, then one older page per sync until it reaches the start (10.2.28).
+- The screen follows the approved prototype: a date and payment-method filter, a sticky total-omzet bar, a nota list of amount plus item names with Load more, a detail view whose lines open their own panel, and a two-step form (nota, then one item at a time). Deleting a saved nota is not built yet (10.2.31).
 
 **Password recovery (no email service)**
 

@@ -1,6 +1,6 @@
 # Kromafi Apotek — Delivery Plan
 
-This document describes the path from the current project state to a version 1.0 application that is stable enough for real pharmacy use. The client-approved UI prototype and product documentation define the starting baseline; the production application in `app/` implements the approved Barang first slice only.
+This document describes the path from the current project state to a version 1.0 application that is stable enough for real pharmacy use. The client-approved UI prototype and product documentation define the starting baseline; the production application in `app/` implements nine approved menus, most recently Penjualan with its notas, stock movements, and 58 mm receipts.
 
 This plan is a working roadmap, not a substitute for client approval.
 
@@ -80,12 +80,12 @@ Goal: turn the UI-derived feature inventory into backend contracts, business rul
 ### 2.7 Offline and sync policy
 
 - **2.7.1** Define offline access/session policy, cache scope, queued-operation ordering, and per-domain conflict/recovery workflows. — **100%** (implemented and verified for items; see 3.4 and 3.5)
-- **2.7.2** Define provisional offline document IDs, official numbering after sync, and offline receipt behavior. — **25%** (document ids are device-generated UUIDs, no numbering is generated, and an unsynced nota prints with no marker, decided in 10.1.8, 10.2.25, and 10.2.26; the receipt itself is not implemented because sales are not built)
+- **2.7.2** Define provisional offline document IDs, official numbering after sync, and offline receipt behavior. — **100%** (document ids are device-generated UUIDs, no numbering is generated, and the 58 mm receipt prints no code, decided in 10.1.8, 10.2.3, 10.2.25, and 10.2.26; a nota that has not synced may be printed as soon as it is locked)
 
 ### 2.8 API and data model
 
 - **2.8.1** Map every included UI action to API reads/writes, validation, authorization, error outcomes, and acceptance tests. — **25%** (Barang, staff, session, and sync endpoints are mapped; other menus are not)
-- **2.8.2** Design the D1 entities, constraints, relationships, migration approach, and device sync metadata for the approved workflows. — **50%** (staff, items, audit events, sync operations, recovery codes, and sessions exist; sales, invoices, stock movements, and reports do not)
+- **2.8.2** Design the D1 entities, constraints, relationships, migration approach, and device sync metadata for the approved workflows. — **50%** (staff, items, reference lists, settings, sales, sale lines, stock movements, audit events, sync operations, recovery codes, and sessions exist; supplier invoices and reports do not)
 
 ### 2.9 Approval
 
@@ -135,7 +135,7 @@ Goal: create the production application foundation and secure access before enab
 
 - **3.8.1** Replace the initial-password field with a temporary one-time PIN that the new staff member uses to sign in and set their own password. — **100%** (implemented: 6 digits, 24 hours, single use, PBKDF2-hashed, shown once with a print button; signing in with it opens only the password screen, and every other API route answers 403 password_change_required until a password of at least 8 characters is set). **Superseded on 3 November 2026 (10.2.18):** the login screen no longer accepts a PIN and the screen that exchanged it for a password was removed; on the same day the remaining server-side PIN was removed too (10.2.20).
 - **3.8.2** Allow any number of admin accounts, as decided in 10.2.9, while keeping the guard that the last active admin cannot be removed. — **100%** (the app already accepts multiple admins and refuses to remove the last active one)
-- **3.8.3** Cover account provisioning with tests: a new account signs in with the password the admin typed at creation, a missing or too-short password is refused, and no PIN route exists any more. — **Replaced on 3 November 2026 (10.2.20)** (three tests under `account provisioning` in tests/worker.test.ts, 67 tests in total; also verified end to end against the local API)
+- **3.8.3** Cover account provisioning with tests: a new account signs in with the password the admin typed at creation, a missing or too-short password is refused, and no PIN route exists any more. — **Replaced on 3 November 2026 (10.2.20)** (three tests under `account provisioning` in tests/worker.test.ts, 76 tests in total; also verified end to end against the local API)
 
 ---
 
@@ -156,7 +156,7 @@ Goal: deliver the approved reference-data, goods-receipt, and cashier workflows 
 
 ### 4.3 Sales
 
-- **4.3.1** Build sales with item/service lines, approved pricing/discount/payment rules, stock checks, locking, and receipt output sized for the 58 mm thermal printer chosen in 10.2.3. — **75%** (the server and the Penjualan screen are built: a nota is created or corrected with its stock movements, locked, listed newest first, and printed on a 58 mm receipt; nine server tests cover it. The live site still runs the previous bundle until the next deploy, and deleting a saved nota waits for 10.2.31.)
+- **4.3.1** Build sales with item/service lines, approved pricing/discount/payment rules, stock checks, locking, and receipt output sized for the 58 mm thermal printer chosen in 10.2.3. — **75%** (the server, the Penjualan screen, and the deployment are in place: a nota is created or corrected with its stock movements, locked, listed newest first, and printed on a 58 mm receipt; nine server tests cover it, and the screen now follows the prototype's layout and two-step item form. Remaining: an end-to-end cashier walkthrough against the live site, and deleting a saved nota waits for 10.2.31.)
 
 ### 4.4 Consistency
 
@@ -164,7 +164,7 @@ Goal: deliver the approved reference-data, goods-receipt, and cashier workflows 
 
 ### 4.5 Tests
 
-- **4.5.1** Add workflow tests for master-data validation, invoice totals, sale totals, payment, and stock changes. — **0%**
+- **4.5.1** Add workflow tests for master-data validation, invoice totals, sale totals, payment, and stock changes. — **25%** (nine tests cover nota creation, retry, validation, locking, cursor history, and correction; invoice and stock-opname tests are still missing)
 
 ### 4.6 Exit gate
 
@@ -235,7 +235,7 @@ Goal: ensure the app remains operational and recoverable in real-world condition
 
 ### 7.1 Offline storage
 
-- **7.1.1** Cache the app shell and required reference data; store all approved offline workflows and a durable outbox in per-device IndexedDB. — **50%** (service-worker shell cache and a durable outbox are verified; Barang and the five reference screens work offline, while purchasing, sales, and inventory workflows do not exist yet)
+- **7.1.1** Cache the app shell and required reference data; store all approved offline workflows and a durable outbox in per-device IndexedDB. — **50%** (service-worker shell cache and a durable outbox are verified; Barang, the five reference screens, and Penjualan work offline (a nota is saved to the outbox and printed before it syncs), while purchasing and inventory workflows do not exist yet)
 
 ### 7.2 Visible sync states
 

@@ -2,18 +2,17 @@
 
 ## Current application status
 
-The Barang slice and the five reference screens exist in `app/`: a React/Vite PWA, a Cloudflare
+Nine screens — Penjualan, Barang, Jasa, Petugas, the four reference lists, and Profil apotek — exist in `app/`: a React/Vite PWA, a Cloudflare
 Worker API, D1 migrations, and per-device IndexedDB storage. Verified by automated tests against the
 Worker handler. The application is deployed as a trial to the client's own Cloudflare account with
-migrations `0001`–`0005` applied remotely; migration `0006` (reference lists and pharmacy profile)
-is applied locally and still has to be applied to the remote database.
+migrations `0001`–`0010` applied remotely, so the sales schema is live in the hosted database.
 
 ## Implemented application storage — Cloudflare D1 and per-device IndexedDB
 
 | Store | Purpose | Current schema | Source of truth |
 |---|---|---|---|
-| Cloudflare D1 (`DB`) | Shared database for confirmed records | `staff`, `sessions`, `login_attempts`, `recovery_codes`, `items`, `cabinets`, `payment_methods`, `doctors`, `suppliers`, `settings`, `audit_events`, `sync_operations` | Authoritative source of truth |
-| Browser IndexedDB `kromafi-apotek` | Per-device confirmed-item cache, durable outbox, session, and offline credentials | Object stores `meta`, `items`, `outbox`, `credentials` in [idb.ts](app/src/lib/idb.ts) | Device-local provisional data only; not shared or authoritative until Worker confirmation |
+| Cloudflare D1 (`DB`) | Shared database for confirmed records | `staff`, `sessions`, `login_attempts`, `recovery_codes`, `items`, `cabinets`, `payment_methods`, `doctors`, `suppliers`, `settings`, `sales`, `sale_lines`, `stock_movements`, `audit_events`, `sync_operations` | Authoritative source of truth |
+| Browser IndexedDB `kromafi-apotek` | Per-device confirmed-item cache, durable outbox, session, and offline credentials | Object stores `meta`, `items`, `cabinets`, `payment_methods`, `doctors`, `suppliers`, `sales`, `outbox`, `credentials` in [idb.ts](app/src/lib/idb.ts) | Device-local provisional data only; not shared or authoritative until Worker confirmation |
 | PWA service-worker cache | App shell and static assets so a device can reopen the app offline | Caches `kromafi-shell-v1`, `kromafi-assets-v1` in [sw.js](app/public/sw.js) | Application assets only; never business records |
 
 ### Cloudflare D1 tables
@@ -104,16 +103,17 @@ is applied locally and still has to be applied to the remote database.
 - Access and lifecycle: a row is claimed before processing and completed with the stored response, so a retried operation is answered as `duplicate` instead of being applied twice. Rows are retained as the record of what each device sent.
 - Source of truth: [sync.ts](app/worker/src/sync.ts) and [0005_operation_author.sql](app/worker/migrations/0005_operation_author.sql).
 
-### Device storage (IndexedDB `kromafi-apotek`, version 3)
+### Device storage (IndexedDB `kromafi-apotek`, version 4)
 
-- **`meta`** — key/value: `deviceId`, current `session`, `lastSyncAt`, `cursor`, `offlineUsername`, `pharmacyProfile` (the confirmed pharmacy profile). Access: local only; cleared only by explicit device reset.
+- **`meta`** — key/value: `deviceId`, current `session`, `lastSyncAt`, `cursor`, `salesCursor`/`salesFloor`/`salesBackfilled` (the window of notas this device keeps, 10.2.28), `offlineUsername`, `pharmacyProfile` (the confirmed pharmacy profile). Access: local only; cleared only by explicit device reset.
 - **`items`** — last server-confirmed item snapshot, keyed by `id`. Never holds pending edits.
+- **`sales`** — last server-confirmed notas, keyed by `id`, each carrying its lines. A nota saved on this device stays in the outbox until the centre answers and is layered on top of this store, so a confirmed nota is never overwritten by work that has not been accepted.
 - **`cabinets`, `paymentMethods`, `doctors`, `suppliers`** — last server-confirmed rows of each reference list, keyed by `id`. Pending edits stay in the outbox and are layered on top when a screen reads the list, so a confirmed row is never overwritten locally by work the centre has not answered.
 - **`outbox`** — queued operations keyed by `operationId`, index `itemId`. Fields: `action`, `itemId`, `authorId` (account that recorded the change), `baseVersion`, `deviceTime`, `payload`, `queuedAt`, `status` (`pending`/`held`/`cancelled`), `message`. Survives reloads; a held operation stays visible until it is corrected and re-sent or discarded, and a `cancelled` operation (work the centre has refused for good, such as work recorded by an account that was deactivated before it arrived) is deleted by the device without notice and never sent again, so it survives only in the server ledger (10.2.13).
 - **`credentials`** — one local credential per staff username: `username`, `staffId`, `name`, `role`, `hash`, `salt`, `iterations`, `provisionedAt`. Derived on the device from the password at online sign-in; the server hash is never copied to the device.
 
-Business records written by the first slice are limited to `items` and `audit_events`; sales, invoices,
-stock movements, batches, and reports are still planned.
+Business records now include `items`, `sales`, `sale_lines`, `stock_movements`, and
+`audit_events`; invoices, batches, and reports are still planned.
 
 ## Prototype inventory — browser localStorage (approved baseline)
 
@@ -156,26 +156,26 @@ requirements, and migrations in `PLAN.md`.
 
 - `batches` — batch code and expiry date per invoice line.
 - `invoices`, `invoice_lines` — supplier invoices with batch and expiry.
-- `stock_movements` — one row per stock change, the single source for stock history. A sale writes one row per goods line and the server decrements `items.stok` in the same transaction (10.2.27).
+- `stock_movements` — implemented by `0010_sales.sql`: one row per stock change, the single source for stock history. A sale writes one row per goods line and the server decrements `items.stok` in the same transaction (10.2.27); invoices and stocktakes will write to the same table.
 - `services` is not a separate table: goods and services share `items` with the `type` column added by migration `0007` (decision 10.2.16). The pharmacy profile is implemented as `settings`.
 - No receipt numbering is generated: a nota is identified by its UUID and its receipt prints no code (10.2.25). Supplier invoice numbers are typed from the supplier's own document when invoices are built, so `settings` holds no numbering rules.
 
-**`sales` — planned, not implemented.** One row per cashier document (nota).
+**`sales` — implemented by `0010_sales.sql`.** One row per cashier document (nota).
 
 - Purpose: the nota header — who sold, when, to whom, with which payment method, and the nota totals.
 - Identity: the nota is identified by its UUID `id` only — no sequential number exists and the receipt prints no code (10.2.25).
-- Fields (proposed, awaiting client approval): `id` (text, primary key); `tanggal` (text `YYYY-MM-DD`, the business day used by the date filter and daily reports); `waktu` (text, ISO timestamp of the transaction); `total_tagihan` (integer rupiah, the sum of every line's `tagihan_final` before the nota discount); `diskon_total_tagihan` (integer rupiah, the discount applied to the whole nota); `total_tagihan_final` (integer rupiah, `total_tagihan` − `diskon_total_tagihan`, the amount the customer pays); `metode_pembayaran` (text, the method name copied by value so editing that list never rewrites an old nota); `bayar` (integer rupiah, cash received, zero for non-cash methods); `nama_pasien` (text, optional); `nama_dokter` (text, optional, copied by value); `nama_petugas` (text, the signed-in staff name copied by value); `catatan` (text, optional); `locked` (integer `0`/`1`; a locked nota may only be printed, and only an admin may unlock it); plus the shared sync columns `version`, `device_updated_at`, `server_updated_at`, `created_at`, `updated_by`.
+- Fields: `id` (text, primary key); `tanggal` (text `YYYY-MM-DD`, the business day used by the date filter and daily reports); `waktu` (text, ISO timestamp of the transaction); `total_tagihan` (integer rupiah, the sum of every line's `tagihan_final` before the nota discount); `diskon_total_tagihan` (integer rupiah, the discount applied to the whole nota); `total_tagihan_final` (integer rupiah, `total_tagihan` − `diskon_total_tagihan`, the amount the customer pays); `metode_pembayaran` (text, the method name copied by value so editing that list never rewrites an old nota); `bayar` (integer rupiah, cash received, zero for non-cash methods); `nama_pasien` (text, optional); `nama_dokter` (text, optional, copied by value); `nama_petugas` (text, the signed-in staff name copied by value); `catatan` (text, optional); `locked` (integer `0`/`1`; a locked nota may only be printed, and only an admin may unlock it); plus the shared sync columns `version`, `device_updated_at`, `server_updated_at`, `created_at`, `updated_by`.
 - Keys and relationships: primary key `id`; index on `tanggal` for the date filter and daily reports; `sale_lines.sale_id` references `sales.id`.
 - Access and lifecycle: written by the sync engine after validation; a nota is locked rather than edited in place and is never deleted. Goods lines create `stock_movements` rows, and the customer must pay the full `total_tagihan_final` (12.6). A nota travels as one sync operation carrying its header and lines, and the server writes the nota, its lines, and the stock effects in a single transaction. A device receives only notas newer than its sync cursor, with older history filled in page by page in the background (10.2.28).
-- Source of truth: planned for a future migration. The approved field model is the prototype record `kromafi.penjualan` documented above.
+- Source of truth: [0010_sales.sql](app/worker/migrations/0010_sales.sql), [sales.ts](app/worker/src/sales.ts).
 
-**`sale_lines` — planned, not implemented.** One row per item sold on a nota.
+**`sale_lines` — implemented by `0010_sales.sql`.** One row per item sold on a nota.
 
 - Purpose: what was sold, in what quantity, at which price, and what the pharmacy actually received per unit after every discount.
-- Fields (proposed, awaiting client approval): `id` (text, primary key); `sale_id` (text, references `sales.id`); `item_id` (text, optional soft reference to `items.id`, kept so history survives renaming or deactivation); `jenis` (`barang`/`jasa`); `nama` (text, item name copied at transaction time); `satuan` (text, unit copied at transaction time); `harga_jual` (integer rupiah, catalogue price per unit at transaction time); `jumlah` (real, quantity sold, which may exceed the recorded stock because negative stock is allowed); `diskon_tagihan` (integer rupiah, discount on this line only); `tagihan` (integer rupiah, `harga_jual` × `jumlah`); `tagihan_final` (integer rupiah, `tagihan` − `diskon_tagihan`); `harga_jual_final` (real rupiah per unit, the price actually received after both discounts: `harga_jual` − (`diskon_tagihan` ÷ `jumlah`) − (`diskon_total_tagihan` ÷ total units on the nota), decision 10.2.24); `batch` (text, optional free-text batch code for goods; the line stores no expiry date, 10.2.29); plus the shared sync columns listed under `sales`.
+- Fields: `id` (text, primary key); `sale_id` (text, references `sales.id`); `item_id` (text, optional soft reference to `items.id`, kept so history survives renaming or deactivation); `jenis` (`barang`/`jasa`); `nama` (text, item name copied at transaction time); `satuan` (text, unit copied at transaction time); `harga_jual` (integer rupiah, catalogue price per unit at transaction time); `jumlah` (real, quantity sold, which may exceed the recorded stock because negative stock is allowed); `diskon_tagihan` (integer rupiah, discount on this line only); `tagihan` (integer rupiah, `harga_jual` × `jumlah`); `tagihan_final` (integer rupiah, `tagihan` − `diskon_tagihan`); `harga_jual_final` (real rupiah per unit, the price actually received after both discounts: `harga_jual` − (`diskon_tagihan` ÷ `jumlah`) − (`diskon_total_tagihan` ÷ total units on the nota), decision 10.2.24); `batch` (text, optional free-text batch code for goods; the line stores no expiry date, 10.2.29); plus the shared sync columns listed under `sales`.
 - Keys and relationships: primary key `id`; index on `sale_id`; `item_id` is a soft reference and never a cascading delete.
 - Access and lifecycle: written together with its `sales` row through the sync engine, and kept permanently even after the item is renamed or deactivated, because the nota must keep the name and price the customer paid (10.1.14). `harga_jual_final` is computed on the server from the stored discount fields, never accepted from the device, and stored so per-item reports can sum it without re-deriving the nota discount allocation on every read.
-- Source of truth: planned for a future migration; the formula is decision 10.2.24 and the field model follows the prototype line record.
+- Source of truth: [0010_sales.sql](app/worker/migrations/0010_sales.sql); the formula is decision 10.2.24 and the line model follows the prototype line record.
 
 ## Table documentation format
 

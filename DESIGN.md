@@ -4,9 +4,9 @@
 
 The Kromafi Apotek system is planned as a maintainable offline-capable web application for one pharmacy, using Cloudflare Pages, Workers, and D1. D1 is the shared source of truth when connected; each device uses a local cache and pending-operation queue while offline.
 
-The UI prototype in `UI/` is the client-approved baseline for design direction and workflow validation. The production application lives in `app/` and is deployed as a trial on Cloudflare; eight menus are implemented (Barang, Jasa, Petugas, Lemari, Metode pembayaran, Dokter, Distributor, and Profil apotek) on one offline engine: staff sign-in, staff administration, items, the offline outbox, synchronization, and export/import.
+The UI prototype in `UI/` is the client-approved baseline for design direction and workflow validation. The production application lives in `app/` and is deployed as a trial on Cloudflare; nine menus are implemented (Penjualan, Barang, Jasa, Petugas, Lemari, Metode pembayaran, Dokter, Distributor, and Profil apotek) on one offline engine: staff sign-in, staff administration, items, notas with their stock effects, the offline outbox, synchronization, and export/import.
 
-This document describes the target design for the whole application. Where it describes sales, purchasing, stock, expiry, or reporting, that is planned design, not verified implementation; the implemented parts are marked as such in [PLAN.md](PLAN.md) phase 3 and phase 11.
+This document describes the target design for the whole application. Where it describes purchasing, expiry, or reporting, that is planned design, not verified implementation; sales are implemented by `0010_sales.sql`; the implemented parts are marked as such in [PLAN.md](PLAN.md) phase 3 and phase 11.
 
 ## 2. Design principles
 
@@ -137,7 +137,7 @@ The initial production database should include the following core entities.
 ### Sales and sales lines
 
 - `sales` and `sale_lines` — cashier documents and their lines.
-The column-level plan, including the stored final selling price per unit (10.2.24), lives in [TABLE.md](TABLE.md); it is a plan, not an implemented schema.
+Implemented by [0010_sales.sql](app/worker/migrations/0010_sales.sql), including the stored final selling price per unit (10.2.24); columns are documented in [TABLE.md](TABLE.md). A nota travels as one sync operation, and a correction replaces its lines while posting only the stock difference (10.2.30).
 
 ### Purchase invoice and invoice lines
 
@@ -149,12 +149,13 @@ The column-level plan, including the stored final selling price per unit (10.2.2
 
 - `stock_movements`
 - one row per stock change event; this is the primary audit trail for stock history
+- implemented by [0010_sales.sql](app/worker/migrations/0010_sales.sql) for sales: one row per goods line, written in the same transaction as the stock decrement (10.2.27), with `koreksi` rows for a corrected nota (10.2.30)
 
 ### Settings
 
 - `settings`, implemented in [0006_reference_data.sql](app/worker/migrations/0006_reference_data.sql)
 - one row with a fixed id (`apotek`), fields nama_apotek, alamat plus the shared sync columns; only an admin may write it
-- no receipt numbering is generated (10.2.25); operational defaults will be added here when sales are built
+- no receipt numbering is generated or stored (10.2.25); a nota is identified by its UUID and its receipt prints no code
 
 ## 7. Target workflow design
 
