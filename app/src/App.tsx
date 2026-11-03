@@ -103,7 +103,7 @@ export default function App() {
 
   const [page, setPage] = useState('barang');
   const [addSignal, setAddSignal] = useState(0);
-  const [filter, setFilter] = useState('semua');
+  const [filter, setFilter] = useState('aktif');
   const [query, setQuery] = useState('');
   const [searchOpen, setSearchOpen] = useState(false);
   const [detailId, setDetailId] = useState<string | null>(null);

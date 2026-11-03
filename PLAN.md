@@ -540,6 +540,12 @@ These are not blockers for an unrelated first slice. Resolve each before impleme
   - Recorded answer: **the login title is fixed as *Kromafi Apotek* and never changes**; the sidebar brand is the only place that shows the pharmacy name from the database. The login screen no longer receives a name prop, and the public `GET /api/pharmacy` read stays only to fill and cache the sidebar name, so the sidebar still shows it offline.
   - Implemented in `src/components/LoginPage.tsx` and `src/App.tsx`.
 
+- **10.2.23 — Which status filter is selected by default on the master screens?**
+  - Why: every master list opened on *Semua*, so the screen showed inactive records first and the client had to change the filter by hand on each visit.
+  - Owner: client. State: **Answered** (3 November 2026).
+  - Recorded answer: **Aktif is the default filter** on Barang, Jasa, Petugas, Lemari, Distributor, Dokter, and Metode pembayaran. *Semua* and *Tidak aktif* stay available so the inactive records are never hidden permanently.
+  - Implemented in `src/App.tsx`, `src/components/PetugasPage.tsx`, `src/components/ReferencePage.tsx`, and `src/components/JasaPage.tsx`.
+
 ### 10.3 Decisions already settled — do not ask again
 
 - **10.3.1** The product is a PWA for one pharmacy, used by multiple staff on multiple devices.

@@ -39,7 +39,7 @@ export function PetugasPage({ isAdmin, selfId, addSignal }: PetugasPageProps) {
   const [rows, setRows] = useState<StaffAccount[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
-  const [filter, setFilter] = useState('semua');
+  const [filter, setFilter] = useState('aktif');
 
   const [detailId, setDetailId] = useState<string | null>(null);
   const [formOpen, setFormOpen] = useState(false);

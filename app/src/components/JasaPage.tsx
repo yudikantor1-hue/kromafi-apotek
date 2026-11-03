@@ -62,7 +62,7 @@ function validate(form: FormState): string {
 }
 
 export function JasaPage({ items, outbox, addSignal, saving, onSave }: JasaPageProps) {
-  const [filter, setFilter] = useState('semua');
+  const [filter, setFilter] = useState('aktif');
   const [visibleCount, setVisibleCount] = useState(PAGE_SIZE);
   const [detailId, setDetailId] = useState<string | null>(null);
   const [formOpen, setFormOpen] = useState(false);

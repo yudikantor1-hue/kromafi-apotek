@@ -53,7 +53,7 @@ export function ReferencePage({
   saving,
   onSave,
 }: ReferencePageProps) {
-  const [filter, setFilter] = useState('semua');
+  const [filter, setFilter] = useState('aktif');
   const [visibleCount, setVisibleCount] = useState(PAGE_SIZE);
   const [detailId, setDetailId] = useState<string | null>(null);
   const [formOpen, setFormOpen] = useState(false);
