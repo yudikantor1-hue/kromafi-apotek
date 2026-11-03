@@ -41,13 +41,16 @@ export interface ItemPayload {
   status: ItemStatus;
 }
 
-export type OperationStatus = 'pending' | 'held';
+/** `cancelled` means the center refused the work for good; it is never resent. */
+export type OperationStatus = 'pending' | 'held' | 'cancelled';
 
 export interface OutboxOperation {
   operationId: string;
   entity: 'item';
   action: 'create' | 'update';
   itemId: string;
+  /** The account that recorded the change while offline (10.2.12). */
+  authorId?: string;
   baseVersion: number;
   deviceTime: string;
   payload: ItemPayload;
@@ -56,7 +59,7 @@ export interface OutboxOperation {
   message?: string;
 }
 
-export type SyncStatus = 'applied' | 'duplicate' | 'conflict' | 'rejected';
+export type SyncStatus = 'applied' | 'duplicate' | 'conflict' | 'rejected' | 'cancelled';
 
 export interface SyncResult {
   operationId: string;

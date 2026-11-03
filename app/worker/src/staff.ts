@@ -207,6 +207,23 @@ export async function handleStaffPin(
   return json({ pin: issued.pin, expiresAt: issued.expiresAt, staff: toWire(target) });
 }
 
+/**
+ * Closes ledger rows a deactivated account left in flight. Device queues are
+ * cancelled when they reach the server; these are the rows the server had
+ * already claimed, so they are marked here instead of waiting forever.
+ */
+async function cancelPendingOperations(db: D1Database, staffId: string): Promise<number> {
+  const result = await db
+    .prepare(
+      `UPDATE sync_operations
+          SET status = 'cancelled', message = 'account_deactivated'
+        WHERE status = 'processing' AND (author_id = ? OR (author_id IS NULL AND staff_id = ?))`,
+    )
+    .bind(staffId, staffId)
+    .run();
+  return result.meta.changes;
+}
+
 export async function handleStaffUpdate(
   request: Request,
   db: D1Database,
@@ -250,7 +267,10 @@ export async function handleStaffUpdate(
   if (sameUsername) return apiError(409, 'username_taken');
 
   const now = nowIso();
-  const deactivatedAt = input.status === 'Aktif' ? null : (target.deactivated_at ?? now);
+  // Reactivating clears the mark, so a later deactivation records a fresh time
+  // (10.2.12). Keeping the old value would judge new work against a stale date.
+  const deactivatedAt =
+    input.status === 'Aktif' ? null : changesStatus ? now : (target.deactivated_at ?? now);
 
   try {
     await db
@@ -265,9 +285,21 @@ export async function handleStaffUpdate(
     await db.prepare('DELETE FROM sessions WHERE staff_id = ?').bind(id).run();
   }
 
+  // Work queued on a device is judged per operation when it arrives (10.2.12);
+  // this closes whatever the server had already claimed for the account.
+  const cancelled = input.status === 'Aktif' ? 0 : await cancelPendingOperations(db, id);
+
   const updated = await findStaff(db, id);
   const after = updated ? toWire(updated) : null;
-  await recordStaffAudit(db, actor, 'update', id, before, after);
+  await recordStaffAudit(
+    db,
+    actor,
+    'update',
+    id,
+    before,
+    after,
+    cancelled > 0 ? `cancelled_pending_operations:${cancelled}` : '',
+  );
   return json({ staff: after });
 }
 

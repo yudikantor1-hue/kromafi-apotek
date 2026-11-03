@@ -87,6 +87,7 @@ function createOp(overrides: Record<string, unknown> = {}) {
     entity: 'item',
     action: 'create',
     itemId: crypto.randomUUID(),
+    authorId: 'staff-admin',
     baseVersion: 0,
     deviceTime: iso(),
     payload: basePayload(),
@@ -100,6 +101,7 @@ function updateOp(itemId: string, baseVersion: number, overrides: Record<string,
     entity: 'item',
     action: 'update',
     itemId,
+    authorId: 'staff-admin',
     baseVersion,
     deviceTime: iso(),
     payload: basePayload({ nama: 'Paracetamol 500mg', stok: 10 }),
@@ -594,21 +596,135 @@ describe('conflict handling', () => {
 });
 
 describe('account deactivation', () => {
-  it('accepts operations timestamped before deactivation and rejects later ones', async () => {
+  const offlineWork = (authorId: string, deviceTime: string, nama: string) =>
+    createOp({ authorId, deviceTime, payload: basePayload({ nama }) });
+
+  it('accepts work recorded before deactivation and cancels work recorded after it', async () => {
     const staff = await login('user');
-    const before = iso(-120_000);
-    const after = iso(120_000);
 
     db.rawRun('UPDATE staff SET status = ?, deactivated_at = ? WHERE id = ?', 'Tidak aktif', iso(), 'staff-budi');
 
-    const accepted = await push(staff.cookie, 'device-budi', [createOp({ deviceTime: before })]);
+    const accepted = await push(staff.cookie, 'device-budi', [
+      offlineWork('staff-budi', iso(-120_000), 'Betametason'),
+    ]);
     expect(accepted.body.results[0].status).toBe('applied');
 
     const rejected = await push(staff.cookie, 'device-budi', [
-      createOp({ deviceTime: after, payload: basePayload({ nama: 'Betametason' }) }),
+      offlineWork('staff-budi', iso(120_000), 'Antasida'),
     ]);
-    expect(rejected.body.results[0]).toMatchObject({ status: 'rejected', message: 'account_deactivated' });
+    expect(rejected.body.results[0]).toMatchObject({ status: 'cancelled', message: 'account_deactivated' });
     expect(db.raw('SELECT id FROM items')).toHaveLength(1);
+  });
+
+  it('cancels queued work of a deactivated account even when an active account sends it', async () => {
+    const admin = await login('admin');
+    const queued = offlineWork('staff-budi', iso(60_000), 'Antasida');
+
+    const deactivate = await send('PUT', '/api/staff/staff-budi', admin.cookie, {
+      name: 'Budi',
+      username: 'user',
+      role: 'staf',
+      status: 'Tidak aktif',
+    });
+    expect(deactivate.status).toBe(200);
+
+    // The reported bug: another, active account signs in on the same device and
+    // the queue still carried the deactivated account's work.
+    const pushed = await push(admin.cookie, 'device-budi', [queued]);
+    expect(pushed.body.results[0]).toMatchObject({ status: 'cancelled', message: 'account_deactivated' });
+    expect(db.raw('SELECT id FROM items')).toHaveLength(0);
+
+    const ledger = db.raw<{ author_id: string; status: string }>(
+      'SELECT author_id, status FROM sync_operations WHERE operation_id = ?',
+      queued.operationId,
+    )[0];
+    expect(ledger).toMatchObject({ author_id: 'staff-budi', status: 'cancelled' });
+
+    const audit = db.raw<{ staff_id: string; note: string }>(
+      "SELECT staff_id, note FROM audit_events WHERE outcome = 'rejected'",
+    )[0];
+    expect(audit.staff_id).toBe('staff-budi');
+    expect(audit.note).toContain('account_deactivated');
+    expect(audit.note).toContain('pushed_by:staff-admin');
+  });
+
+  it('keeps work the account recorded before deactivation, whoever sends it', async () => {
+    const admin = await login('admin');
+    const recordedBefore = offlineWork('staff-budi', iso(-90_000), 'Antasida');
+
+    await send('PUT', '/api/staff/staff-budi', admin.cookie, {
+      name: 'Budi',
+      username: 'user',
+      role: 'staf',
+      status: 'Tidak aktif',
+    });
+
+    const pushed = await push(admin.cookie, 'device-budi', [recordedBefore]);
+    expect(pushed.body.results[0]).toMatchObject({ status: 'applied' });
+
+    const audit = db.raw<{ note: string }>("SELECT note FROM audit_events WHERE entity = 'item' AND outcome = 'applied'")[0];
+    expect(audit.note).toContain('operation_before_deactivation');
+    expect(audit.note).toContain('pushed_by:staff-admin');
+  });
+
+  it('clears the deactivation time on reactivation and records a fresh one afterwards', async () => {
+    const admin = await login('admin');
+    const base = { name: 'Budi', username: 'user', role: 'staf' as const };
+    const deactivatedAt = () =>
+      db.raw<{ deactivated_at: string | null }>('SELECT deactivated_at FROM staff WHERE id = ?', 'staff-budi')[0]
+        .deactivated_at;
+
+    expect((await send('PUT', '/api/staff/staff-budi', admin.cookie, { ...base, status: 'Tidak aktif' })).status).toBe(200);
+    const first = deactivatedAt();
+    expect(first).toBeTruthy();
+
+    expect((await send('PUT', '/api/staff/staff-budi', admin.cookie, { ...base, status: 'Aktif' })).status).toBe(200);
+    expect(deactivatedAt()).toBeNull();
+
+    await new Promise((resolve) => setTimeout(resolve, 5));
+    await send('PUT', '/api/staff/staff-budi', admin.cookie, { ...base, status: 'Tidak aktif' });
+    const second = deactivatedAt();
+    expect(second).toBeTruthy();
+    expect(Date.parse(String(second))).toBeGreaterThan(Date.parse(String(first)));
+  });
+
+  it('closes ledger rows a deactivated account left in flight', async () => {
+    const admin = await login('admin');
+    db.rawRun(
+      `INSERT INTO sync_operations
+         (operation_id, staff_id, device_id, author_id, entity, entity_id, action, device_time, server_time, status, message, response_json)
+       VALUES (?, ?, ?, ?, 'item', ?, 'create', ?, ?, 'processing', '', '{}')`,
+      'op-in-flight',
+      'staff-budi',
+      'device-budi',
+      'staff-budi',
+      'item-in-flight',
+      iso(),
+      iso(),
+    );
+
+    await send('PUT', '/api/staff/staff-budi', admin.cookie, {
+      name: 'Budi',
+      username: 'user',
+      role: 'staf',
+      status: 'Tidak aktif',
+    });
+
+    const row = db.raw<{ status: string }>('SELECT status FROM sync_operations WHERE operation_id = ?', 'op-in-flight')[0];
+    expect(row.status).toBe('cancelled');
+
+    const audit = db.raw<{ note: string }>("SELECT note FROM audit_events WHERE entity = 'staff' AND action = 'update'")[0];
+    expect(audit.note).toContain('cancelled_pending_operations:1');
+  });
+
+  it('rejects work whose author is unknown or missing', async () => {
+    const admin = await login('admin');
+
+    const unknown = await push(admin.cookie, 'device-1', [createOp({ authorId: 'staff-hilang' })]);
+    expect(unknown.body.results[0]).toMatchObject({ status: 'rejected', message: 'unknown_author' });
+
+    const missing = await push(admin.cookie, 'device-1', [createOp({ authorId: '' })]);
+    expect(missing.body.results[0]).toMatchObject({ status: 'rejected', message: 'invalid_author_id' });
   });
 });
 

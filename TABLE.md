@@ -60,15 +60,18 @@ is provisioned yet (tracked as P1 in [PLAN.md](PLAN.md)).
 
 **`sync_operations`** — idempotency ledger for queued device operations.
 
-- Fields: `operation_id` (primary key), `staff_id`, `device_id`, `entity`, `entity_id`, `action`, `device_time`, `server_time`, `status`, `message`, `response_json`.
+- Fields: `operation_id` (primary key), `staff_id`, `device_id`, `author_id`, `entity`, `entity_id`, `action`, `device_time`, `server_time`, `status`, `message`, `response_json`.
+- `author_id` is the account that recorded the work on the device; `staff_id` is the same account, and the status of that account decides the outcome when the row is processed (10.2.12).
+- `status`: `processing` while claimed, then `applied`, `duplicate`, `conflict`, `rejected`, or `cancelled` for work recorded by an already-deactivated account.
+- Keys: primary key `operation_id`; index `idx_sync_operations_author` on `author_id`, used to close a deactivated account's in-flight rows.
 - Access and lifecycle: a row is claimed before processing and completed with the stored response, so a retried operation is answered as `duplicate` instead of being applied twice. Rows are retained as the record of what each device sent.
-- Source of truth: [sync.ts](app/worker/src/sync.ts).
+- Source of truth: [sync.ts](app/worker/src/sync.ts) and [0005_operation_author.sql](app/worker/migrations/0005_operation_author.sql).
 
 ### Device storage (IndexedDB `kromafi-apotek`, version 1)
 
 - **`meta`** — key/value: `deviceId`, current `session`, `lastSyncAt`, `cursor`, `offlineUsername`. Access: local only; cleared only by explicit device reset.
 - **`items`** — last server-confirmed item snapshot, keyed by `id`. Never holds pending edits.
-- **`outbox`** — queued operations keyed by `operationId`, index `itemId`. Fields: `action`, `itemId`, `baseVersion`, `deviceTime`, `payload`, `queuedAt`, `status` (`pending`/`held`), `message`. Survives reloads; a held operation stays visible until it is corrected and re-sent or discarded.
+- **`outbox`** — queued operations keyed by `operationId`, index `itemId`. Fields: `action`, `itemId`, `authorId` (account that recorded the change), `baseVersion`, `deviceTime`, `payload`, `queuedAt`, `status` (`pending`/`held`/`cancelled`), `message`. Survives reloads; a held operation stays visible until it is corrected and re-sent or discarded, and a cancelled operation stays visible as **Dibatalkan** but is never sent again.
 - **`credentials`** — one local credential per staff username: `username`, `staffId`, `name`, `role`, `hash`, `salt`, `iterations`, `provisionedAt`. Derived on the device from the password at online sign-in; the server hash is never copied to the device.
 
 Business records written by the first slice are limited to `items` and `audit_events`; sales, invoices,

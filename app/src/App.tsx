@@ -88,7 +88,7 @@ export default function App() {
     async (options: { silent?: boolean } = {}) => {
       setSyncing(true);
       try {
-        const summary = await syncNow();
+        const summary = await syncNow(session?.staff.id ?? '');
         await refreshLocal();
 
         if (summary.message === 'session_expired') {
@@ -97,32 +97,34 @@ export default function App() {
           showNotice('Sesi berakhir. Perubahan tetap tersimpan di perangkat; masuk kembali saat online.');
           return false;
         }
-        if (!summary.ok) {
-          setOnline(summary.online);
-          if (!options.silent) {
-            showNotice(
-              summary.held > 0
-                ? `${summary.held} perubahan ditahan untuk diperiksa.`
-                : 'Tidak dapat menghubungi pusat. Data tetap tersimpan di perangkat ini.',
+
+        setOnline(summary.online);
+
+        if (!options.silent) {
+          const parts: string[] = [];
+          if (summary.cancelled > 0) {
+            parts.push(`${summary.cancelled} perubahan dibatalkan karena akun pembuatnya sudah nonaktif.`);
+          }
+          if (summary.held > 0) parts.push(`${summary.held} perubahan ditahan untuk diperiksa.`);
+          if (!summary.ok && parts.length === 0) {
+            parts.push('Tidak dapat menghubungi pusat. Data tetap tersimpan di perangkat ini.');
+          }
+          if (summary.ok && parts.length === 0) {
+            parts.push(
+              summary.applied + summary.duplicates > 0
+                ? `${summary.applied} perubahan dikonfirmasi pusat.`
+                : 'Data sudah terbaru.',
             );
           }
-          return false;
+          showNotice(parts.join(' '));
         }
 
-        setOnline(true);
-        if (!options.silent) {
-          showNotice(
-            summary.applied + summary.duplicates > 0
-              ? `${summary.applied} perubahan dikonfirmasi pusat.`
-              : 'Data sudah terbaru.',
-          );
-        }
-        return true;
+        return summary.ok;
       } finally {
         setSyncing(false);
       }
     },
-    [refreshLocal, showNotice],
+    [refreshLocal, session, showNotice],
   );
 
   useEffect(() => {
@@ -349,7 +351,7 @@ export default function App() {
   async function handleSave(payload: ItemPayload, itemId?: string, confirmedVersion = 0) {
     setSaving(true);
     try {
-      await queueItemSave({ itemId, confirmedVersion, payload });
+      await queueItemSave({ itemId, confirmedVersion, payload, authorId: session?.staff.id ?? '' });
       setFormOpen(false);
       setEditingId(null);
       await refreshLocal();
@@ -357,7 +359,7 @@ export default function App() {
       if (navigator.onLine) {
         await runSync({ silent: true });
         const remaining = await outboxCount();
-        if (remaining > 0) showNotice('Perubahan ditahan untuk diperiksa. Lihat daftar di halaman Barang.');
+        if (remaining > 0) showNotice('Ada perubahan yang perlu diperiksa. Lihat daftar di halaman Barang.');
         else showNotice('Perubahan dikonfirmasi pusat.');
       } else {
         showNotice('Tersimpan di perangkat. Menunggu dikirim ke pusat.');

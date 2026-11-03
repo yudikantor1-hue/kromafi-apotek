@@ -35,6 +35,10 @@ export function mergePending(confirmed: Item[], outbox: OutboxOperation[]): Visi
   const byId = new Map<string, VisibleItem>(confirmed.map((item) => [item.id, { ...item }]));
 
   for (const operation of outbox) {
+    // Cancelled work will never reach the center, so it must not keep a record
+    // looking pending (10.2.12).
+    if (operation.status === 'cancelled') continue;
+
     const base = byId.get(operation.itemId);
     if (operation.action === 'create') {
       byId.set(operation.itemId, {
@@ -69,6 +73,8 @@ export interface SaveItemInput {
   itemId?: string;
   confirmedVersion: number;
   payload: ItemPayload;
+  /** The signed-in account; the server judges the work by this account's status. */
+  authorId: string;
 }
 
 export async function queueItemSave(input: SaveItemInput): Promise<OutboxOperation> {
@@ -80,6 +86,7 @@ export async function queueItemSave(input: SaveItemInput): Promise<OutboxOperati
     entity: 'item',
     action: existing?.action ?? (input.itemId ? 'update' : 'create'),
     itemId,
+    authorId: existing?.authorId ?? input.authorId,
     baseVersion: existing?.baseVersion ?? input.confirmedVersion,
     deviceTime: new Date().toISOString(),
     payload: input.payload,
@@ -102,6 +109,7 @@ export interface SyncSummary {
   applied: number;
   duplicates: number;
   held: number;
+  cancelled: number;
   message: string;
 }
 
@@ -109,9 +117,18 @@ export interface SyncSummary {
  * Sends queued work, then refreshes the confirmed cache from D1.
  * A failed or held operation never blocks the rest of the queue (B9).
  */
-export async function syncNow(): Promise<SyncSummary> {
+export async function syncNow(authorId: string): Promise<SyncSummary> {
   const deviceId = await getOrCreateDeviceId();
   const queued = (await outboxAll()).filter((operation) => operation.status === 'pending');
+
+  // Queues recorded before authors were stored keep working: the account that
+  // sends them is the best attribution available.
+  for (const operation of queued) {
+    if (!operation.authorId && authorId) {
+      operation.authorId = authorId;
+      await outboxPut(operation);
+    }
+  }
 
   const summary: SyncSummary = {
     ok: true,
@@ -119,6 +136,7 @@ export async function syncNow(): Promise<SyncSummary> {
     applied: 0,
     duplicates: 0,
     held: 0,
+    cancelled: 0,
     message: '',
   };
 
@@ -139,6 +157,7 @@ export async function syncNow(): Promise<SyncSummary> {
       await applyPushResult(result, batch);
       if (result.status === 'applied') summary.applied += 1;
       else if (result.status === 'duplicate') summary.duplicates += 1;
+      else if (result.status === 'cancelled') summary.cancelled += 1;
       else {
         summary.held += 1;
         summary.ok = false;
@@ -174,6 +193,14 @@ async function applyPushResult(result: SyncResult, batch: OutboxOperation[]): Pr
   }
 
   if (!operation) return;
+
+  // Cancelled work stays on the device with its reason so the staff member can
+  // see what was dropped, but it is never sent again.
+  if (result.status === 'cancelled') {
+    await outboxPut({ ...operation, status: 'cancelled', message: result.message });
+    return;
+  }
+
   await outboxPut({ ...operation, status: 'held', message: result.message });
 }
 

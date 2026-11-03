@@ -357,7 +357,7 @@ Everything that needs a client answer, confirmation, or decision lives here. Eac
 - **10.1.6 (B5a) — If an account is deactivated while a device is offline, should Cloudflare reject every pending operation from that account, or accept operations timestamped before deactivation and reject later ones?**
   - Why: the device cannot receive revocation while offline, and distinguishing before/after relies on a device-reported time that may be inaccurate or changed.
   - Owner: client. State: **Approved** — implemented.
-  - Recorded answer: offline sign-in does not expire. At sync, accept operations timestamped before deactivation and reject later ones. Keep both device-reported and server-received times; if ordering cannot be established, retain the operation for review rather than silently accepting it.
+  - Recorded answer: offline sign-in does not expire. At sync, accept operations timestamped before deactivation and reject later ones. Keep both device-reported and server-received times; if ordering cannot be established, retain the operation for review rather than silently accepting it. Refined by 10.2.12 (3 November 2026): the compared account is each operation's recorded author, not the account that sends the queue, and the outcome for later work is `cancelled`.
 
 - **10.1.7 (B6) — Which records may be cached on a device, and how long should cached history remain available offline?**
   - Why: more cached history lengthens first sync and uses more device storage, and increases privacy and data-loss risk; this sets cache, retention, and cleanup requirements.
@@ -476,6 +476,12 @@ These are not blockers for an unrelated first slice. Resolve each before impleme
   - Recorded answer (3 November 2026): the client approved the outcomes list for the Petugas fixes, which stated this behaviour, so the button changes the staff member's own password. Any change of role and status stays with an admin and is refused for one's own account.
   - Implemented: the button opens a form that shows the name and username as read-only text and lets the staff member set a new password of at least 8 characters.
 
+- **10.2.12 — Should offline work recorded by an account that is later deactivated be cancelled when it reaches the server, even if another active account sends it?**
+  - Why: reported bug — work queued by a deactivated account was still approved once an active account signed in on the same device and pressed sync; the server only checked the status of the signed-in sender.
+  - Owner: client. State: **Answered**.
+  - Recorded answer (3 November 2026): yes. Every operation carries the account that recorded it plus the device time at which it was recorded, and device clock differences between devices are accepted as they are. The server stores each account's deactivation time and re-checks status while processing. Work recorded after that time is **cancelled** (`account_deactivated`) and never applied; work recorded earlier stays acceptable under B5a and its audit note says `operation_before_deactivation`. When the sender differs from the author, the note adds `pushed_by:<staffId>`, and the audit row belongs to the author. Reactivating an account clears its deactivation time so a later deactivation records a fresh one, and deactivating an account closes any ledger row the server had already claimed for it.
+  - Implemented in `worker/src/sync.ts`, `worker/src/staff.ts`, migration `0005_operation_author.sql`, and the device outbox (`src/lib/sync.ts`, `src/components/BarangPage.tsx`).
+
 ### 10.3 Decisions already settled — do not ask again
 
 - **10.3.1** The product is a PWA for one pharmacy, used by multiple staff on multiple devices.
@@ -511,9 +517,9 @@ Goal: prove the approved PWA + Cloudflare architecture with one complete, low-ri
 - **11.3.2** After the app and item dataset are loaded, a device can go offline, create or edit an item, reload the app, and still see the operation marked **pending**, not confirmed. — **Verified**
 - **11.3.3** Reconnection applies each valid operation once; safe retries never duplicate records; an independent operation continues while dependent work is held. — **Verified**
 - **11.3.4** Two-device edits preserve both audit events in chronological history; the latest valid device-reported timestamp determines the active value, and clock uncertainty is surfaced for review. — **Verified**
-- **11.3.5** Operations by an account deactivated while offline are accepted or rejected by comparison with the deactivation time; rejected or uncertain operations stay visible and auditable. — **Verified**
+- **11.3.5** Each operation records its author, and the server compares that author's deactivation time with the operation's device time when the operation is processed: later work is cancelled even when an active account sends the queue, earlier work is applied and noted, and in-flight ledger rows are closed on deactivation. Cancelled or held operations stay visible and auditable. — **Verified**
 - **11.3.6** A new device can initialize Barang data from Cloudflare sync or the encrypted export package; import changes only the local cache and is blocked when the target has pending work. — **Verified**
-- **11.3.7** Automated tests cover online persistence, offline reload, two-device sync, idempotency, deactivation, clock conflicts, import validation, and permissions. — **Verified** (45 tests)
+- **11.3.7** Automated tests cover online persistence, offline reload, two-device sync, idempotency, author-based deactivation, clock conflicts, import validation, and permissions. — **Verified** (58 tests)
 
 ### 11.4 Implementation todo list
 

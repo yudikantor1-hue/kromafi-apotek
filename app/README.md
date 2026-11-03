@@ -236,10 +236,19 @@ The schedule, retention period, and who verifies a restore are still undecided (
 - Equal device timestamps (`ambiguous_order`), older edits (`stale_edit`), and device clocks more
   than five minutes ahead of the server (`clock_skew`) are held for review instead of applied.
 - An independent operation still applies when another in the batch fails.
-- Operations from an account deactivated while offline are accepted when timestamped before the
-  deactivation and rejected afterwards.
+- Every queued operation carries the `authorId` of the account that recorded it, so the server judges
+  the account that did the work rather than the account that happens to send the queue later.
+- Account status is re-checked for each operation while it is processed, against the deactivation time
+  stored on the server. Work recorded **before** that time is applied and its audit note says
+  `operation_before_deactivation`; work recorded **after** it returns `cancelled`
+  (`account_deactivated`) and is never applied — even when an active account sends it. When the sender
+  is not the author, the note adds `pushed_by:<staffId>`, and the audit row belongs to the author.
+- Reactivating an account clears its deactivation time, so a later deactivation records a fresh one.
+- Deactivating an account also closes any ledger row the server had already claimed for it, so nothing
+  of that account stays in flight.
 - Held work stays in the outbox, is shown on the Barang screen with a plain-language reason, and can
-  be corrected and re-sent or discarded.
+  be corrected and re-sent or discarded. Cancelled work stays visible there too, labelled **Dibatalkan**:
+  it is never re-sent, and the staff member can discard it.
 
 **Password recovery (no email service)**
 
