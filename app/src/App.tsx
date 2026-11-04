@@ -730,6 +730,8 @@ export default function App() {
           items={items}
           outbox={outbox}
           suppliers={references.supplier}
+          staffName={session.staff.name}
+          isAdmin={session.staff.role === 'admin'}
           saving={saving}
           addSignal={addSignal}
           onSave={handleInvoiceSave}

@@ -3,16 +3,17 @@ import type {
   OutboxOperation,
   PackageType,
   PaymentStatus,
+  PurchaseInvoiceLine,
   PurchaseInvoicePayload,
   PurchaseInvoicePayloadLine,
   VisibleItem,
   VisiblePurchaseInvoice,
   VisibleReference,
 } from '../types';
-import { formatCurrency, formatQuantity } from '../lib/format';
+import { formatQuantity } from '../lib/format';
 import { lineAmounts } from '../lib/invoiceMath';
 import { DateField } from './DateField';
-import { IconBack, IconEdit, IconInvoice, IconPlus } from './Icons';
+import { IconBack, IconEdit } from './Icons';
 
 const PAGE_SIZE = 10;
 const MONTHS = [
@@ -65,10 +66,24 @@ function amount(value: string): number {
   return Math.max(0, Math.round(toNumber(value)));
 }
 
-function showDate(iso: string | null): string {
-  if (!iso) return '-';
-  const [year, month, day] = iso.split('-');
-  return `${day}/${month}/${year}`;
+/** Prototype money: grouped digits, decimals kept for a cost per unit. */
+function formatRupiah(value: number | null | undefined): string {
+  if (value === null || value === undefined || !Number.isFinite(Number(value))) return 'Rp 0';
+  return `Rp ${new Intl.NumberFormat('id-ID', { maximumFractionDigits: 20 }).format(Number(value))}`;
+}
+
+function formatShortDate(value: string | null): string {
+  if (!value) return '-';
+  const date = new Date(`${value}T00:00:00`);
+  if (Number.isNaN(date.getTime())) return '-';
+  return new Intl.DateTimeFormat('id-ID', { day: 'numeric', month: 'short', year: 'numeric' }).format(date);
+}
+
+function formatStamp(value: string | null): string {
+  if (!value) return '-';
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return '-';
+  return new Intl.DateTimeFormat('id-ID', { dateStyle: 'medium', timeStyle: 'short' }).format(date);
 }
 
 function monthLabel(month: string): string {
@@ -79,11 +94,13 @@ function monthLabel(month: string): string {
 function MoneyInput({
   value,
   ariaLabel,
+  placeholder = '0',
   onChange,
 }: {
   value: string;
-  ariaLabel: string;
-  onChange: (digits: string) => void;
+  ariaLabel?: string;
+  placeholder?: string;
+  onChange: (raw: string) => void;
 }) {
   return (
     <span className="money-input">
@@ -92,10 +109,10 @@ function MoneyInput({
         type="text"
         inputMode="numeric"
         aria-label={ariaLabel}
-        placeholder="0"
-        value={value ? new Intl.NumberFormat('id-ID').format(Number(value)) : ''}
+        placeholder={placeholder}
+        value={value ? new Intl.NumberFormat('id-ID').format(toNumber(value)) : ''}
         onFocus={(event) => event.target.select()}
-        onChange={(event) => onChange(event.target.value.replace(/\D/g, ''))}
+        onChange={(event) => onChange(event.target.value.replace(/[^0-9.,]/g, ''))}
       />
     </span>
   );
@@ -108,7 +125,7 @@ function PercentInput({
 }: {
   value: string;
   ariaLabel: string;
-  onChange: (value: string) => void;
+  onChange: (raw: string) => void;
 }) {
   return (
     <span className="money-input">
@@ -126,7 +143,7 @@ function PercentInput({
   );
 }
 
-/** A month picker, matching the calendar field's look (Senin-first is irrelevant here). */
+/** Month picker that looks like the prototype's picker: a full-width control. */
 function MonthField({ value, onChange }: { value: string; onChange: (month: string) => void }) {
   const [open, setOpen] = useState(false);
   const [view, setView] = useState(value);
@@ -152,19 +169,19 @@ function MonthField({ value, onChange }: { value: string; onChange: (month: stri
   const year = Number(view.slice(0, 4));
 
   return (
-    <span className="date-field" ref={root} style={{ position: 'relative' }}>
+    <span className="faktur-select" ref={root}>
       <button
         type="button"
-        className="btn btn-secondary"
         aria-haspopup="dialog"
         aria-expanded={open}
         aria-label="Pilih bulan faktur"
         onClick={() => setOpen((current) => !current)}
       >
-        {monthLabel(value)}
+        <span>{monthLabel(value)}</span>
+        <ChevronIcon />
       </button>
       {open && (
-        <div className="date-panel month-panel" role="dialog" aria-label="Pilih bulan">
+        <div className="faktur-select-panel month-panel" role="dialog" aria-label="Pilih bulan">
           <div className="date-panel-head">
             <button type="button" className="date-nav" aria-label="Tahun sebelumnya" onClick={() => setView(`${year - 1}-${view.slice(5)}`)}>
               ‹
@@ -199,9 +216,34 @@ function MonthField({ value, onChange }: { value: string; onChange: (month: stri
   );
 }
 
+function ChevronIcon() {
+  return (
+    <svg className="chevron" width="16" height="16" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true">
+      <path
+        fillRule="evenodd"
+        d="M5.22 7.47a.75.75 0 011.06 0L10 11.19l3.72-3.72a.75.75 0 111.06 1.06l-4.25 4.25a.75.75 0 01-1.06 0L5.22 8.53a.75.75 0 010-1.06z"
+        clipRule="evenodd"
+      />
+    </svg>
+  );
+}
+
+function TrashIcon() {
+  return (
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true">
+      <path
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        d="M19 7l-.9 12.1A2 2 0 0116.1 21H7.9a2 2 0 01-2-1.9L5 7m5 4v6m4-6v6M9 7V4a1 1 0 011-1h4a1 1 0 011 1v3M4 7h16"
+      />
+    </svg>
+  );
+}
+
 interface DraftLine extends PurchaseInvoicePayloadLine {
   key: string;
-  /** Computed by the same arithmetic the server uses, for the draft total. */
+  nama: string;
+  satuan: string;
   hargaModal: number;
   tagihan: number;
 }
@@ -220,7 +262,8 @@ interface Draft {
 interface LineDraft {
   key: string;
   itemId: string;
-  itemQuery: string;
+  nama: string;
+  satuan: string;
   kemasan: PackageType;
   jumlahBox: string;
   isiPerBox: string;
@@ -234,11 +277,10 @@ interface LineDraft {
   tanggalExpired: string;
 }
 
-function emptyDraft(suppliers: VisibleReference[]): Draft {
-  const active = suppliers.find((supplier) => supplier.status === 'Aktif');
+function emptyDraft(): Draft {
   return {
     nomorFaktur: '',
-    distributorId: active?.id ?? '',
+    distributorId: '',
     tanggalFaktur: localDate(),
     jatuhTempo: '',
     statusPelunasan: 'Belum lunas',
@@ -250,7 +292,7 @@ function emptyDraft(suppliers: VisibleReference[]): Draft {
 
 function draftFromInvoice(invoice: VisiblePurchaseInvoice): Draft {
   return {
-    nomorFaktur: invoice.nomorFaktur,
+    nomorFaktur: invoice.nomorFaktur.toUpperCase(),
     distributorId: invoice.distributorId,
     tanggalFaktur: invoice.tanggalFaktur,
     jatuhTempo: invoice.jatuhTempo,
@@ -279,29 +321,44 @@ function draftFromInvoice(invoice: VisiblePurchaseInvoice): Draft {
   };
 }
 
-function lineDraft(line?: DraftLine): LineDraft {
+function emptyLineDraft(): LineDraft {
   return {
-    key: line?.key ?? crypto.randomUUID(),
-    itemId: line?.itemId ?? '',
-    itemQuery: line?.nama ?? '',
-    kemasan: line?.kemasan ?? 'satu unit',
-    jumlahBox: line?.jumlahBox ? String(line.jumlahBox) : '',
-    isiPerBox: line?.isiPerBox ? String(line.isiPerBox) : '',
-    jumlah: line?.jumlah ? String(line.jumlah) : '',
-    hargaBeli: line?.hargaBeli ? String(line.hargaBeli) : '',
-    diskon: line?.diskonPersen ? String(line.diskonPersen) : '',
-    ppn: line?.ppnPersen ? String(line.ppnPersen) : '',
-    margin: line?.marginPersen ? String(line.marginPersen) : '20',
-    hargaJual: line?.hargaJual ? String(line.hargaJual) : '',
-    batch: line?.batch ?? '',
-    tanggalExpired: line?.tanggalExpired ?? '',
+    key: crypto.randomUUID(),
+    itemId: '',
+    nama: '',
+    satuan: '',
+    kemasan: 'satu unit',
+    jumlahBox: '',
+    isiPerBox: '',
+    jumlah: '',
+    hargaBeli: '',
+    diskon: '0',
+    ppn: '0',
+    margin: '0',
+    hargaJual: '',
+    batch: '',
+    tanggalExpired: '',
   };
 }
 
-function sellingPrice(modal: number, margin: number): number {
-  // The prototype rounds the unit cost first, so 499,5 with a 20% margin
-  // proposes 600, not 599.
-  return Math.max(0, Math.round(Math.round(modal) * (1 + margin / 100)));
+function lineDraftFrom(line: DraftLine): LineDraft {
+  return {
+    key: line.key,
+    itemId: line.itemId,
+    nama: line.nama,
+    satuan: line.satuan,
+    kemasan: line.kemasan,
+    jumlahBox: line.jumlahBox ? String(line.jumlahBox) : '',
+    isiPerBox: line.isiPerBox ? String(line.isiPerBox) : '',
+    jumlah: line.jumlah ? String(line.jumlah) : '',
+    hargaBeli: String(line.hargaBeli),
+    diskon: String(line.diskonPersen),
+    ppn: String(line.ppnPersen),
+    margin: String(line.marginPersen),
+    hargaJual: String(line.hargaJual),
+    batch: line.batch,
+    tanggalExpired: line.tanggalExpired ?? '',
+  };
 }
 
 interface FakturOrderanPageProps {
@@ -309,6 +366,8 @@ interface FakturOrderanPageProps {
   items: VisibleItem[];
   outbox: OutboxOperation[];
   suppliers: VisibleReference[];
+  staffName: string;
+  isAdmin: boolean;
   saving: boolean;
   addSignal: number;
   onSave: (payload: PurchaseInvoicePayload, invoiceId?: string, confirmedVersion?: number) => Promise<string | null>;
@@ -327,6 +386,8 @@ export function FakturOrderanPage({
   items,
   outbox,
   suppliers,
+  staffName,
+  isAdmin,
   saving,
   addSignal,
   onSave,
@@ -335,65 +396,86 @@ export function FakturOrderanPage({
   onDiscard,
 }: FakturOrderanPageProps) {
   const [month, setMonth] = useState(localMonth());
-  const [distributor, setDistributor] = useState('');
+  const [distributor, setDistributor] = useState('semua');
+  const [filterOpen, setFilterOpen] = useState(false);
   const [limit, setLimit] = useState(PAGE_SIZE);
   const [detailId, setDetailId] = useState<string | null>(null);
+  const [lineDetail, setLineDetail] = useState<PurchaseInvoiceLine | null>(null);
   const [formOpen, setFormOpen] = useState(false);
   const [editing, setEditing] = useState<VisiblePurchaseInvoice | null>(null);
-  const [draft, setDraft] = useState<Draft>(() => emptyDraft(suppliers));
+  const [draft, setDraft] = useState<Draft>(emptyDraft);
+  const [distOpen, setDistOpen] = useState(false);
+  const [lineOpen, setLineOpen] = useState(false);
+  const [lineIndex, setLineIndex] = useState<number | null>(null);
   const [line, setLine] = useState<LineDraft | null>(null);
-  const [formError, setFormError] = useState('');
+  const [priceEdited, setPriceEdited] = useState(false);
+  const [autocompleteOpen, setAutocompleteOpen] = useState(false);
   const [lineError, setLineError] = useState('');
-  const [paymentFor, setPaymentFor] = useState<VisiblePurchaseInvoice | null>(null);
-  const [paymentStatus, setPaymentStatus] = useState<PaymentStatus>('Lunas');
+  const [formError, setFormError] = useState('');
+  const [paymentOpen, setPaymentOpen] = useState(false);
   const [paymentDate, setPaymentDate] = useState(localDate());
   const [paymentError, setPaymentError] = useState('');
+  const [deleteOpen, setDeleteOpen] = useState(false);
   const lastAdd = useRef(addSignal);
+  const filterRoot = useRef<HTMLDivElement>(null);
+  const distRoot = useRef<HTMLDivElement>(null);
 
-  const activeSuppliers = suppliers.filter((supplier) => supplier.status === 'Aktif');
+  const activeSuppliers = useMemo(
+    () =>
+      suppliers
+        .filter((supplier) => supplier.status === 'Aktif')
+        .sort((left, right) => left.nama.localeCompare(right.nama, 'id', { sensitivity: 'base' })),
+    [suppliers],
+  );
+
   const catalogue = useMemo(() => new Map(items.map((item) => [item.id, item])), [items]);
 
-  const visible = useMemo(() => {
-    const matched = invoices.filter(
-      (invoice) =>
-        invoice.tanggalFaktur.slice(0, 7) === month &&
-        (!distributor || invoice.distributorId === distributor),
-    );
-    return {
-      rows: matched.slice(0, limit),
-      hasMore: matched.length > limit,
-    };
-  }, [invoices, month, distributor, limit]);
+  const filtered = useMemo(() => {
+    return invoices
+      .filter(
+        (invoice) =>
+          invoice.tanggalFaktur.slice(0, 7) === month &&
+          (distributor === 'semua' || invoice.distributorId === distributor),
+      )
+      .sort((left, right) => `${right.tanggalFaktur}${right.waktu}`.localeCompare(`${left.tanggalFaktur}${left.waktu}`));
+  }, [invoices, month, distributor]);
 
+  const rows = filtered.slice(0, limit);
+  const hasMore = filtered.length > limit;
   const detail = detailId ? invoices.find((invoice) => invoice.id === detailId) ?? null : null;
 
-  const draftAmount = draft.lines.reduce((total, row) => total + row.tagihan, 0);
+  const draftTotal = draft.lines.reduce((total, row) => total + row.tagihan, 0);
 
   useEffect(() => {
     if (addSignal === lastAdd.current) return;
     lastAdd.current = addSignal;
     setEditing(null);
-    setDraft(emptyDraft(suppliers));
+    setDraft(emptyDraft());
     setLine(null);
+    setLineOpen(false);
     setFormError('');
     setFormOpen(true);
-  }, [addSignal, suppliers]);
+  }, [addSignal]);
 
-  function openEdit(invoice: VisiblePurchaseInvoice) {
-    setEditing(invoice);
-    setDraft(draftFromInvoice(invoice));
-    setLine(null);
-    setFormError('');
-    setFormOpen(true);
-    setDetailId(null);
-  }
+  useEffect(() => {
+    if (!filterOpen) return;
+    const onPointerDown = (event: PointerEvent) => {
+      if (!filterRoot.current?.contains(event.target as Node)) setFilterOpen(false);
+    };
+    document.addEventListener('pointerdown', onPointerDown);
+    return () => document.removeEventListener('pointerdown', onPointerDown);
+  }, [filterOpen]);
 
-  function openLine() {
-    setLine(lineDraft());
-    setLineError('');
-  }
+  useEffect(() => {
+    if (!distOpen) return;
+    const onPointerDown = (event: PointerEvent) => {
+      if (!distRoot.current?.contains(event.target as Node)) setDistOpen(false);
+    };
+    document.addEventListener('pointerdown', onPointerDown);
+    return () => document.removeEventListener('pointerdown', onPointerDown);
+  }, [distOpen]);
 
-  const lineAmountsValue = line
+  const lineNumbers = line
     ? lineAmounts({
         kemasan: line.kemasan,
         jumlahBox: toNumber(line.jumlahBox),
@@ -405,99 +487,153 @@ export function FakturOrderanPage({
       })
     : null;
 
-  function updateLine(patch: Partial<LineDraft>) {
-    setLine((current) => {
-      if (!current) return current;
-      const next = { ...current, ...patch };
-      const modal = lineAmounts({
-        kemasan: next.kemasan,
-        jumlahBox: toNumber(next.jumlahBox),
-        isiPerBox: toNumber(next.isiPerBox),
-        jumlah: toNumber(next.jumlah),
-        hargaBeli: amount(next.hargaBeli),
-        diskonPersen: toNumber(next.diskon),
-        ppnPersen: toNumber(next.ppn),
-      }).hargaModal;
-      // The selling price follows the margin, as the prototype does.
-      if (patch.hargaBeli !== undefined || patch.margin !== undefined || patch.diskon !== undefined || patch.ppn !== undefined || patch.kemasan !== undefined || patch.isiPerBox !== undefined) {
-        next.hargaJual = String(sellingPrice(modal, toNumber(next.margin)));
-      }
-      return next;
-    });
+  const lineUnitQuantity = line
+    ? line.kemasan === 'per box'
+      ? toNumber(line.jumlahBox) * toNumber(line.isiPerBox)
+      : toNumber(line.jumlah)
+    : 0;
+
+  const computedSalePrice = (() => {
+    if (!line) return 0;
+    if (priceEdited) return Math.ceil(toNumber(line.hargaJual));
+    if (!line.hargaBeli) return 0;
+    const modal = lineNumbers?.hargaModal ?? 0;
+    return Math.ceil(modal * (1 + toNumber(line.margin) / 100));
+  })();
+
+  const selectedItem = line?.itemId ? catalogue.get(line.itemId) ?? null : null;
+
+  const productMatches = useMemo(() => {
+    if (!line) return [];
+    const query = line.nama.trim().toLowerCase();
+    return items
+      .filter(
+        (item) =>
+          item.type === 'barang' &&
+          item.status === 'Aktif' &&
+          (!query || item.nama.toLowerCase().includes(query)),
+      )
+      .sort((left, right) => left.nama.localeCompare(right.nama, 'id', { sensitivity: 'base' }))
+      .slice(0, 10);
+  }, [items, line]);
+
+  function openForm(invoice: VisiblePurchaseInvoice | null) {
+    setEditing(invoice);
+    setDraft(invoice ? draftFromInvoice(invoice) : emptyDraft());
+    setFormError('');
+    setDistOpen(false);
+    setDetailId(null);
+    setFormOpen(true);
   }
 
-  function chooseItem(itemId: string) {
+  function closeForm() {
+    setFormOpen(false);
+    setLineOpen(false);
+    setLine(null);
+    setFormError('');
+  }
+
+  function openLineForm(existing: DraftLine | null, index: number | null) {
+    setLine(existing ? lineDraftFrom(existing) : emptyLineDraft());
+    setLineIndex(index);
+    setPriceEdited(Boolean(existing));
+    setLineError('');
+    setAutocompleteOpen(false);
+    setLineOpen(true);
+  }
+
+  function chooseProduct(itemId: string) {
     const item = catalogue.get(itemId);
     if (!item) return;
-    updateLine({ itemId, itemQuery: item.nama, hargaBeli: String(item.hargaModal) });
+    setLine((current) =>
+      current
+        ? {
+            ...current,
+            itemId,
+            nama: item.nama,
+            satuan: item.satuan,
+            // The prototype clears both prices and shows the old ones as hints.
+            hargaBeli: '',
+            hargaJual: '',
+            batch: current.batch,
+          }
+        : current,
+    );
+    setPriceEdited(false);
+    setAutocompleteOpen(false);
+    setLineError('');
   }
 
-  function commitLine() {
+  function updateLine(patch: Partial<LineDraft>) {
+    setLine((current) => (current ? { ...current, ...patch } : current));
+  }
+
+  function saveLine() {
     if (!line) return;
-    if (!line.itemId) {
-      setLineError('Pilih barang lebih dulu.');
+    const item = line.itemId ? catalogue.get(line.itemId) : null;
+    if (!item) {
+      setLineError('Pilih barang yang tersedia.');
       return;
     }
-    const kam = line.kemasan;
-    const jumlahBox = toNumber(line.jumlahBox);
-    const isiPerBox = toNumber(line.isiPerBox);
-    const jumlah = toNumber(line.jumlah);
-    if (kam === 'per box' && (!(jumlahBox > 0) || !(isiPerBox > 0))) {
-      setLineError('Isi jumlah box dan isi per box.');
+    const boxed = line.kemasan === 'per box';
+    const unitCount = boxed ? toNumber(line.jumlahBox) * toNumber(line.isiPerBox) : toNumber(line.jumlah);
+    if (!(unitCount > 0)) {
+      setLineError('Jumlah dan harga harus lebih besar dari nol.');
       return;
     }
-    if (kam === 'satu unit' && !(jumlah > 0)) {
-      setLineError('Isi jumlah unit.');
+    if (!(toNumber(line.hargaBeli) > 0)) {
+      setLineError('Jumlah dan harga harus lebih besar dari nol.');
       return;
     }
-    if (!(amount(line.hargaBeli) > 0)) {
-      setLineError('Isi harga beli.');
+    if (computedSalePrice <= 0) {
+      setLineError('Harga jual wajib diisi');
       return;
     }
-    const item = catalogue.get(line.itemId);
-    if (!item) return;
-    const values = lineAmounts({
-      kemasan: kam,
-      jumlahBox,
-      isiPerBox,
-      jumlah,
+
+    const amounts = lineAmounts({
+      kemasan: line.kemasan,
+      jumlahBox: toNumber(line.jumlahBox),
+      isiPerBox: toNumber(line.isiPerBox),
+      jumlah: toNumber(line.jumlah),
       hargaBeli: amount(line.hargaBeli),
       diskonPersen: toNumber(line.diskon),
       ppnPersen: toNumber(line.ppn),
     });
-    const draftLine: DraftLine = {
+
+    const stored: DraftLine = {
       key: line.key,
-      itemId: line.itemId,
+      itemId: item.id,
       nama: item.nama,
       satuan: item.satuan,
-      kemasan: kam,
-      jumlahBox: kam === 'per box' ? jumlahBox : 0,
-      isiPerBox: kam === 'per box' ? isiPerBox : 0,
-      jumlah: kam === 'per box' ? values.jumlah : jumlah,
+      kemasan: line.kemasan,
+      jumlahBox: boxed ? toNumber(line.jumlahBox) : 0,
+      isiPerBox: boxed ? toNumber(line.isiPerBox) : 0,
+      jumlah: unitCount,
       hargaBeli: amount(line.hargaBeli),
       diskonPersen: toNumber(line.diskon),
       ppnPersen: toNumber(line.ppn),
-      hargaModal: values.hargaModal,
+      hargaModal: amounts.hargaModal,
       marginPersen: toNumber(line.margin),
-      hargaJual: amount(line.hargaJual),
-      tagihan: values.tagihan,
+      hargaJual: computedSalePrice,
+      tagihan: amounts.tagihan,
       batch: line.batch.trim(),
       tanggalExpired: line.tanggalExpired || null,
     };
 
     setDraft((current) => {
-      const existing = current.lines.findIndex((row) => row.key === line.key);
       const lines = [...current.lines];
-      if (existing >= 0) lines[existing] = draftLine;
-      else lines.push(draftLine);
+      if (lineIndex === null) lines.push(stored);
+      else lines[lineIndex] = stored;
       return { ...current, lines };
     });
+    setLineOpen(false);
     setLine(null);
+    setLineIndex(null);
     setLineError('');
   }
 
-  function removeLine(key: string) {
-    setDraft((current) => ({ ...current, lines: current.lines.filter((row) => row.key !== key) }));
+  function removeLine(index: number) {
+    setDraft((current) => ({ ...current, lines: current.lines.filter((_, at) => at !== index) }));
   }
 
   function payloadFromDraft(): PurchaseInvoicePayload {
@@ -528,16 +664,17 @@ export function FakturOrderanPage({
     };
   }
 
-  async function submit() {
+  async function submitInvoice() {
     setFormError('');
-    if (!draft.nomorFaktur.trim()) return setFormError('Nomor faktur wajib diisi.');
-    if (!draft.distributorId) return setFormError('Pilih distributor.');
-    if (!draft.tanggalFaktur) return setFormError('Tanggal faktur wajib diisi.');
-    if (!draft.jatuhTempo) return setFormError('Jatuh tempo wajib diisi.');
+    if (!draft.nomorFaktur.trim()) return setFormError('Nomor faktur wajib diisi');
+    if (!draft.tanggalFaktur) return setFormError('Tanggal faktur wajib diisi');
+    if (!draft.jatuhTempo) return setFormError('Jatuh tempo wajib diisi');
     if (draft.statusPelunasan === 'Lunas' && !draft.tanggalPelunasan) {
-      return setFormError('Isi tanggal pelunasan.');
+      return setFormError('Tanggal pelunasan wajib diisi');
     }
-    if (draft.lines.length === 0) return setFormError('Tambahkan minimal satu barang.');
+    if (draft.lines.length === 0) return setFormError('Tambahkan minimal satu barang ke faktur.');
+    const supplier = activeSuppliers.find((record) => record.id === draft.distributorId);
+    if (!supplier) return setFormError('Pilih distributor yang masih aktif.');
 
     const problem = await onSave(payloadFromDraft(), editing?.id, editing?.version ?? 0);
     if (problem) {
@@ -549,43 +686,42 @@ export function FakturOrderanPage({
   }
 
   function askPayment(invoice: VisiblePurchaseInvoice, status: PaymentStatus) {
-    setPaymentFor(invoice);
-    setPaymentStatus(status);
+    if (status === 'Belum lunas') {
+      void cancelPayment(invoice);
+      return;
+    }
     setPaymentDate(invoice.tanggalPelunasan ?? localDate());
     setPaymentError('');
+    setPaymentOpen(true);
+  }
+
+  async function cancelPayment(invoice: VisiblePurchaseInvoice) {
+    const agreed = window.confirm('Batalkan pelunasan faktur ini? Status akan kembali ke Belum lunas.');
+    if (!agreed) return;
+    const problem = await onPayment(invoice.id, 'Belum lunas', null, invoice.version);
+    if (problem) setFormError(problem);
   }
 
   async function submitPayment() {
-    if (!paymentFor) return;
-    if (paymentStatus === 'Lunas' && !paymentDate) {
-      setPaymentError('Isi tanggal pelunasan.');
+    if (!detail) return;
+    if (!paymentDate) {
+      setPaymentError('Tanggal pelunasan wajib diisi');
       return;
     }
-    const problem = await onPayment(
-      paymentFor.id,
-      paymentStatus,
-      paymentStatus === 'Lunas' ? paymentDate : null,
-      paymentFor.version,
-    );
+    const problem = await onPayment(detail.id, 'Lunas', paymentDate, detail.version);
     if (problem) {
       setPaymentError(problem);
       return;
     }
-    setPaymentFor(null);
+    setPaymentOpen(false);
   }
 
-  async function remove(invoice: VisiblePurchaseInvoice) {
-    const confirmed = window.confirm(
-      `Hapus faktur ${invoice.nomorFaktur}? Stok yang sudah masuk akan dikembalikan.`,
-    );
-    if (!confirmed) return;
-    const problem = await onDelete(invoice.id, invoice.version);
-    if (problem) {
-      setDetailId(invoice.id);
-      setFormError(problem);
-      return;
-    }
-    setDetailId(null);
+  async function removeInvoice() {
+    if (!detail) return;
+    const problem = await onDelete(detail.id, detail.version);
+    setDeleteOpen(false);
+    if (problem) setFormError(problem);
+    else setDetailId(null);
   }
 
   const heldFor = (invoice: VisiblePurchaseInvoice): OutboxOperation | undefined =>
@@ -596,66 +732,110 @@ export function FakturOrderanPage({
         operation.status === 'held',
     );
 
+  const distributorName = activeSuppliers.find((supplier) => supplier.id === distributor)?.nama;
+
   return (
-    <section className="card">
-      <div className="toolbar">
-        <MonthField value={month} onChange={(next) => { setMonth(next); setLimit(PAGE_SIZE); }} />
-        <select
-          className="select"
-          aria-label="Filter distributor"
-          value={distributor}
-          onChange={(event) => {
-            setDistributor(event.target.value);
-            setLimit(PAGE_SIZE);
-          }}
-        >
-          <option value="">Semua distributor</option>
-          {suppliers.map((supplier) => (
-            <option key={supplier.id} value={supplier.id}>
-              {supplier.nama}
-            </option>
-          ))}
-        </select>
+    <section className="faktur-page">
+      <div className="faktur-filters">
+        <label className="faktur-field">
+          Bulan
+          <MonthField
+            value={month}
+            onChange={(next) => {
+              setMonth(next);
+              setLimit(PAGE_SIZE);
+            }}
+          />
+        </label>
+        <div className="faktur-field">
+          Distributor
+          <div className="faktur-select" ref={filterRoot}>
+            <button
+              type="button"
+              role="combobox"
+              aria-label="Filter distributor"
+              aria-expanded={filterOpen}
+              onClick={() => setFilterOpen((current) => !current)}
+            >
+              <span>{distributor === 'semua' ? 'Semua distributor' : distributorName ?? 'Semua distributor'}</span>
+              <ChevronIcon />
+            </button>
+            {filterOpen && (
+              <div className="faktur-select-panel" role="listbox">
+                <button
+                  type="button"
+                  role="option"
+                  aria-selected={distributor === 'semua'}
+                  className={distributor === 'semua' ? 'is-selected' : ''}
+                  onClick={() => {
+                    setDistributor('semua');
+                    setLimit(PAGE_SIZE);
+                    setFilterOpen(false);
+                  }}
+                >
+                  Semua distributor
+                </button>
+                {activeSuppliers.map((supplier) => (
+                  <button
+                    key={supplier.id}
+                    type="button"
+                    role="option"
+                    aria-selected={distributor === supplier.id}
+                    className={distributor === supplier.id ? 'is-selected' : ''}
+                    onClick={() => {
+                      setDistributor(supplier.id);
+                      setLimit(PAGE_SIZE);
+                      setFilterOpen(false);
+                    }}
+                  >
+                    {supplier.nama}
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+        </div>
       </div>
 
-      {visible.rows.length === 0 ? (
-        <div className="empty-state">
-          <IconInvoice size={28} />
-          <p>Belum ada faktur orderan pada bulan ini.</p>
-        </div>
-      ) : (
-        <div className="list-divider">
-          {visible.rows.map((invoice) => {
-            const held = heldFor(invoice);
-            return (
-              <button key={invoice.id} type="button" className="item-row" onClick={() => setDetailId(invoice.id)}>
-                <span className="item-row-top">
-                  <span className="item-name">{invoice.distributorNama || 'Distributor'}</span>
-                  <span className="row-chips">
-                    {held && <span className="chip chip-held">Ditahan</span>}
-                    {invoice.pending && !held && <span className="chip">Menunggu</span>}
-                    <span className={`chip ${invoice.statusPelunasan === 'Lunas' ? 'chip-active' : 'chip-inactive'}`}>
-                      {invoice.statusPelunasan}
-                    </span>
+      <div className="card faktur-list">
+        {rows.map((invoice) => {
+          const held = heldFor(invoice);
+          return (
+            <button key={invoice.id} type="button" className="faktur-row" onClick={() => setDetailId(invoice.id)}>
+              <span className="faktur-row-top">
+                <span className="faktur-row-name">{invoice.distributorNama}</span>
+                <span className="row-chips">
+                  {held && <span className="chip chip-held">Ditahan</span>}
+                  <span className={`status-pill ${invoice.statusPelunasan === 'Lunas' ? 'paid' : 'unpaid'}`}>
+                    {invoice.statusPelunasan}
                   </span>
                 </span>
-                <span className="item-meta">
-                  {invoice.nomorFaktur} · {showDate(invoice.tanggalFaktur)} · jatuh tempo {showDate(invoice.jatuhTempo)}
-                </span>
-                <span className="item-price">{formatCurrency(invoice.totalTagihan)}</span>
-              </button>
-            );
-          })}
-        </div>
-      )}
-
-      {visible.hasMore && (
-        <div className="list-footer">
-          <button type="button" className="pill-button" onClick={() => setLimit((value) => value + PAGE_SIZE)}>
-            Muat 10 lagi
+              </span>
+              <span className="faktur-row-meta">
+                <span>{formatShortDate(invoice.tanggalFaktur)}</span>
+                <span className="faktur-row-total">{formatRupiah(invoice.totalTagihan)}</span>
+              </span>
+              <span className="faktur-row-number">{invoice.nomorFaktur.toUpperCase()}</span>
+            </button>
+          );
+        })}
+        {rows.length === 0 && (
+          <div className="faktur-empty">
+            {invoices.length ? 'Tidak ada faktur untuk filter ini.' : 'Belum ada faktur orderan.'}
+          </div>
+        )}
+        <div className="faktur-list-footer">
+          <button
+            type="button"
+            className="pill-button"
+            disabled={!hasMore}
+            title={hasMore ? 'Tampilkan faktur berikutnya' : 'Semua faktur sudah ditampilkan'}
+            onClick={() => setLimit((value) => value + PAGE_SIZE)}
+          >
+            Load more
           </button>
         </div>
-      )}
+      </div>
 
       {detail && (
         <div className="overlay" role="presentation" onClick={() => setDetailId(null)}>
@@ -663,111 +843,157 @@ export function FakturOrderanPage({
             className="modal faktur-modal"
             role="dialog"
             aria-modal="true"
-            aria-label={`Faktur ${detail.nomorFaktur}`}
+            aria-label={detail.distributorNama}
             onClick={(event) => event.stopPropagation()}
           >
-            <div className="modal-header">
-              <button type="button" className="btn btn-quiet btn-icon" aria-label="Kembali" onClick={() => setDetailId(null)}>
-                <IconBack size={18} />
-              </button>
-              <strong className="title">{detail.nomorFaktur}</strong>
-              <span className={`chip ${detail.statusPelunasan === 'Lunas' ? 'chip-active' : 'chip-inactive'}`}>
-                {detail.statusPelunasan}
-              </span>
-            </div>
-
-            <div className="card-pad">
-              <div className="detail-grid">
-                <div>
-                  <span className="field-label">Distributor</span>
-                  <p>{detail.distributorNama}</p>
-                </div>
-                <div>
-                  <span className="field-label">Tanggal faktur</span>
-                  <p>{showDate(detail.tanggalFaktur)}</p>
-                </div>
-                <div>
-                  <span className="field-label">Jatuh tempo</span>
-                  <p>{showDate(detail.jatuhTempo)}</p>
-                </div>
-                <div>
-                  <span className="field-label">Pelunasan</span>
-                  <p>{detail.tanggalPelunasan ? showDate(detail.tanggalPelunasan) : '-'}</p>
-                </div>
-                <div>
-                  <span className="field-label">Petugas</span>
-                  <p>{detail.petugasNama || 'Menunggu pusat'}</p>
-                </div>
+            <div className="faktur-modal-head">
+              <div className="faktur-modal-title">
+                <button type="button" className="faktur-icon-btn" aria-label="Kembali" title="Kembali" onClick={() => setDetailId(null)}>
+                  <IconBack size={18} />
+                </button>
+                <strong>{detail.distributorNama}</strong>
               </div>
-
-              <div className="faktur-lines">
-                {detail.lines.map((row) => (
-                  <div key={row.id} className="faktur-line">
-                    <div>
-                      <strong>{row.nama}</strong>
-                      <div className="item-meta">
-                        {formatQuantity(row.jumlah)} {row.satuan} · {row.kemasan === 'per box' ? `${formatQuantity(row.jumlahBox)} box × ${formatQuantity(row.isiPerBox)}` : 'satu unit'}
-                        {row.batch ? ` · batch ${row.batch}` : ''}
-                        {row.tanggalExpired ? ` · exp ${showDate(row.tanggalExpired)}` : ''}
-                      </div>
-                      <div className="item-meta">
-                        Modal {formatCurrency(row.hargaModal)} · jual {formatCurrency(row.hargaJual)}
-                      </div>
-                    </div>
-                    <strong className="tabular">{formatCurrency(row.tagihan)}</strong>
-                  </div>
-                ))}
-              </div>
-
-              <div className="faktur-total">
-                <span>Total tagihan</span>
-                <strong>{formatCurrency(detail.totalTagihan)}</strong>
-              </div>
-
-              {detail.catatan && <p className="item-meta">{detail.catatan}</p>}
-
-              {heldFor(detail) && (
-                <p className="notice notice-warning">
-                  {HELD_MESSAGES[heldFor(detail)?.message ?? ''] ?? 'Perubahan ini ditahan untuk diperiksa.'}{' '}
-                  <button
-                    type="button"
-                    className="btn-link"
-                    onClick={() => {
-                      const operation = heldFor(detail);
-                      if (operation) onDiscard(operation.operationId);
-                      setDetailId(null);
-                    }}
-                  >
-                    Buang perubahan
-                  </button>
-                </p>
-              )}
-
-              <div className="faktur-actions">
-                {detail.statusPelunasan === 'Belum lunas' ? (
-                  <button type="button" className="btn btn-primary" disabled={saving} onClick={() => askPayment(detail, 'Lunas')}>
-                    Tandai lunas
-                  </button>
-                ) : (
-                  <button
-                    type="button"
-                    className="btn btn-secondary"
-                    disabled={saving}
-                    onClick={() => askPayment(detail, 'Belum lunas')}
-                  >
+              <div className="faktur-modal-actions">
+                {!detail.locked && (
+                  <>
+                    <button
+                      type="button"
+                      className="faktur-icon-btn"
+                      title="Edit faktur"
+                      aria-label="Edit faktur"
+                      onClick={() => openForm(detail)}
+                    >
+                      <IconEdit size={16} />
+                    </button>
+                    <button
+                      type="button"
+                      className="faktur-icon-btn is-danger"
+                      title="Hapus faktur"
+                      aria-label="Hapus faktur"
+                      onClick={() => setDeleteOpen(true)}
+                    >
+                      <TrashIcon />
+                    </button>
+                    {detail.statusPelunasan === 'Belum lunas' && (
+                      <button type="button" className="faktur-paid-btn" onClick={() => askPayment(detail, 'Lunas')}>
+                        Lunas
+                      </button>
+                    )}
+                  </>
+                )}
+                {detail.locked && isAdmin && (
+                  <button type="button" className="btn-quiet faktur-cancel-paid" onClick={() => void askPayment(detail, 'Belum lunas')}>
                     Batal lunas
                   </button>
                 )}
-                {!detail.locked && (
-                  <>
-                    <button type="button" className="btn btn-secondary" disabled={saving} onClick={() => openEdit(detail)}>
-                      <IconEdit size={16} /> Edit
-                    </button>
-                    <button type="button" className="btn btn-danger-link" disabled={saving} onClick={() => void remove(detail)}>
-                      Hapus
-                    </button>
-                  </>
-                )}
+              </div>
+            </div>
+
+            <div className="faktur-detail-lines">
+              {detail.lines.map((row, index) => (
+                <button key={row.id || index} type="button" className="faktur-detail-line" onClick={() => setLineDetail(row)}>
+                  <span className="faktur-detail-line-top">
+                    <strong>{row.nama}</strong>
+                    <span>{formatRupiah(row.tagihan)}</span>
+                  </span>
+                  <span className="faktur-detail-line-meta">
+                    {formatRupiah(row.hargaModal)} x {formatQuantity(row.jumlah)} {row.satuan}
+                  </span>
+                </button>
+              ))}
+            </div>
+
+            <div className="faktur-total-row">
+              <span>Total tagihan</span>
+              <span>{formatRupiah(detail.totalTagihan)}</span>
+            </div>
+
+            <dl className="faktur-dl">
+              <div>
+                <dt>Nomor faktur</dt>
+                <dd>{detail.nomorFaktur.toUpperCase()}</dd>
+              </div>
+              <div>
+                <dt>Tanggal faktur</dt>
+                <dd>{formatShortDate(detail.tanggalFaktur)}</dd>
+              </div>
+              <div>
+                <dt>Jatuh tempo</dt>
+                <dd>{detail.jatuhTempo ? formatShortDate(detail.jatuhTempo) : '-'}</dd>
+              </div>
+              <div>
+                <dt>Status pelunasan</dt>
+                <dd>{detail.statusPelunasan}</dd>
+              </div>
+              {detail.statusPelunasan === 'Lunas' && (
+                <div>
+                  <dt>Tanggal pelunasan</dt>
+                  <dd>{detail.tanggalPelunasan ? formatShortDate(detail.tanggalPelunasan) : '-'}</dd>
+                </div>
+              )}
+              <div>
+                <dt>Petugas</dt>
+                <dd>{detail.petugasNama || '-'}</dd>
+              </div>
+              <div>
+                <dt>Catatan</dt>
+                <dd className="faktur-pre">{detail.catatan || '-'}</dd>
+              </div>
+              <div>
+                <dt>Waktu</dt>
+                <dd>{formatStamp(detail.waktu)}</dd>
+              </div>
+            </dl>
+
+            {heldFor(detail) && (
+              <p className="notice notice-warning faktur-held">
+                {HELD_MESSAGES[heldFor(detail)?.message ?? ''] ?? 'Perubahan ini ditahan untuk diperiksa.'}{' '}
+                <button
+                  type="button"
+                  className="btn-link"
+                  onClick={() => {
+                    const operation = heldFor(detail);
+                    if (operation) onDiscard(operation.operationId);
+                    setDetailId(null);
+                  }}
+                >
+                  Buang perubahan
+                </button>
+              </p>
+            )}
+          </div>
+        </div>
+      )}
+
+      {lineDetail && (
+        <div className="overlay is-top" role="presentation" onClick={() => setLineDetail(null)}>
+          <div
+            className="modal faktur-modal-sm"
+            role="dialog"
+            aria-modal="true"
+            aria-label={lineDetail.nama}
+            onClick={(event) => event.stopPropagation()}
+          >
+            <div className="faktur-modal-head">
+              <div className="faktur-modal-title">
+                <button type="button" className="faktur-icon-btn" aria-label="Kembali" onClick={() => setLineDetail(null)}>
+                  <IconBack size={18} />
+                </button>
+                <strong>{lineDetail.nama}</strong>
+              </div>
+            </div>
+            <div className="faktur-line-detail">
+              <div className="faktur-line-detail-top">
+                <span>
+                  {formatRupiah(lineDetail.hargaModal)} x {formatQuantity(lineDetail.jumlah)} {lineDetail.satuan}
+                </span>
+                <strong>{formatRupiah(lineDetail.tagihan)}</strong>
+              </div>
+              <div>
+                <span className="muted">Expired:</span> {formatShortDate(lineDetail.tanggalExpired)}
+              </div>
+              <div>
+                <span className="muted">Batch:</span> {lineDetail.batch || '-'}
               </div>
             </div>
           </div>
@@ -775,85 +1001,154 @@ export function FakturOrderanPage({
       )}
 
       {formOpen && (
-        <div className="overlay" role="presentation" onClick={() => setFormOpen(false)}>
+        <div className="overlay" role="presentation" onClick={() => !lineOpen && closeForm()}>
           <div
             className="modal faktur-modal"
             role="dialog"
             aria-modal="true"
-            aria-label={editing ? 'Ubah faktur orderan' : 'Faktur orderan baru'}
+            aria-label={editing ? 'Edit faktur orderan' : 'Tambah faktur orderan'}
             onClick={(event) => event.stopPropagation()}
           >
-            <div className="modal-header">
-              <button type="button" className="btn btn-quiet btn-icon" aria-label="Tutup" onClick={() => setFormOpen(false)}>
-                <IconBack size={18} />
-              </button>
-              <strong className="title">{editing ? 'Ubah faktur orderan' : 'Faktur orderan baru'}</strong>
+            <div className="faktur-modal-head">
+              <div className="faktur-modal-title">
+                <button type="button" className="faktur-icon-btn" aria-label="Kembali" title="Kembali" onClick={closeForm}>
+                  <IconBack size={18} />
+                </button>
+                <strong>{editing ? 'Edit faktur orderan' : 'Tambah faktur orderan'}</strong>
+              </div>
             </div>
 
-            <div className="card-pad">
-              <div className="form-grid">
-                <label className="field">
-                  <span className="field-label">
-                    Nomor faktur <span className="required">*</span>
-                  </span>
-                  <input
-                    className="input"
-                    value={draft.nomorFaktur}
-                    placeholder="INV-001"
-                    onChange={(event) => setDraft((current) => ({ ...current, nomorFaktur: event.target.value.toUpperCase() }))}
-                  />
-                </label>
-                <label className="field">
-                  <span className="field-label">
-                    Distributor <span className="required">*</span>
-                  </span>
-                  <select
-                    className="select"
-                    value={draft.distributorId}
-                    onChange={(event) => setDraft((current) => ({ ...current, distributorId: event.target.value }))}
-                  >
-                    <option value="">Pilih distributor</option>
-                    {activeSuppliers.map((supplier) => (
-                      <option key={supplier.id} value={supplier.id}>
-                        {supplier.nama}
-                      </option>
-                    ))}
-                  </select>
-                </label>
-                <label className="field">
-                  <span className="field-label">
-                    Tanggal faktur <span className="required">*</span>
-                  </span>
+            <div className="faktur-form">
+              <div className="faktur-lines-box">
+                {draft.lines.map((row, index) => (
+                  <div key={row.key} className="faktur-line-row">
+                    <button type="button" onClick={() => openLineForm(row, index)}>
+                      <span className="faktur-line-row-top">
+                        <strong>{row.nama}</strong>
+                        <span>{formatRupiah(row.tagihan)}</span>
+                      </span>
+                      <span className="faktur-line-row-meta">
+                        {formatRupiah(row.hargaModal)} x {formatQuantity(row.jumlah)} {row.satuan}
+                      </span>
+                    </button>
+                    <button
+                      type="button"
+                      className="faktur-line-remove"
+                      title="Hapus barang"
+                      aria-label="Hapus barang"
+                      onClick={() => removeLine(index)}
+                    >
+                      <TrashIcon />
+                    </button>
+                  </div>
+                ))}
+                {draft.lines.length === 0 && (
+                  <div className="faktur-empty">Tambahkan minimal satu barang ke faktur.</div>
+                )}
+                <button type="button" className="faktur-add-line" onClick={() => openLineForm(null, null)}>
+                  + Tambah barang
+                </button>
+              </div>
+
+              <div className="faktur-total-bar">
+                <span>Total tagihan</span>
+                <span>{formatRupiah(draftTotal)}</span>
+              </div>
+
+              <div className="faktur-form-grid">
+                <div className="faktur-field">
+                  Distributor <span className="required">*</span>
+                  <div className="faktur-select" ref={distRoot}>
+                    <button
+                      type="button"
+                      role="combobox"
+                      aria-label="Distributor faktur"
+                      aria-required="true"
+                      aria-expanded={distOpen}
+                      onClick={() => setDistOpen((current) => !current)}
+                    >
+                      <span className={draft.distributorId ? '' : 'muted'}>
+                        {activeSuppliers.find((supplier) => supplier.id === draft.distributorId)?.nama ??
+                          'Pilih distributor'}
+                      </span>
+                      <ChevronIcon />
+                    </button>
+                    {distOpen && (
+                      <div className="faktur-select-panel" role="listbox">
+                        {activeSuppliers.length === 0 && (
+                          <div className="faktur-select-empty">Tidak ada distributor aktif</div>
+                        )}
+                        {activeSuppliers.map((supplier) => (
+                          <button
+                            key={supplier.id}
+                            type="button"
+                            role="option"
+                            aria-selected={draft.distributorId === supplier.id}
+                            className={draft.distributorId === supplier.id ? 'is-selected' : ''}
+                            onClick={() => {
+                              setDraft((current) => ({ ...current, distributorId: supplier.id }));
+                              setDistOpen(false);
+                              setFormError('');
+                            }}
+                          >
+                            {supplier.nama}
+                          </button>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                </div>
+
+                <label className="faktur-field">
+                  Tanggal faktur <span className="required">*</span>
                   <DateField
                     value={draft.tanggalFaktur}
                     onChange={(value) => setDraft((current) => ({ ...current, tanggalFaktur: value }))}
                     ariaLabel="Tanggal faktur"
                   />
                 </label>
-                <label className="field">
-                  <span className="field-label">
-                    Jatuh tempo <span className="required">*</span>
-                  </span>
+
+                <label className="faktur-field">
+                  Nomor faktur <span className="required">*</span>
+                  <input
+                    className="input"
+                    type="text"
+                    maxLength={80}
+                    placeholder="Contoh: ABC123"
+                    value={draft.nomorFaktur}
+                    onChange={(event) =>
+                      setDraft((current) => ({ ...current, nomorFaktur: event.target.value.toUpperCase() }))
+                    }
+                  />
+                </label>
+
+                <label className="faktur-field">
+                  Jatuh tempo <span className="required">*</span>
                   <DateField
                     value={draft.jatuhTempo}
                     onChange={(value) => setDraft((current) => ({ ...current, jatuhTempo: value }))}
                     ariaLabel="Jatuh tempo"
                   />
                 </label>
-                <div className="field">
-                  <span className="field-label">Status pelunasan</span>
+
+                <fieldset className="faktur-field faktur-fieldset">
+                  <legend>
+                    Status pelunasan <span className="required">*</span>
+                  </legend>
                   <div className="radio-row">
                     {(['Belum lunas', 'Lunas'] as PaymentStatus[]).map((status) => (
                       <label key={status}>
                         <input
                           type="radio"
                           name="status-pelunasan"
+                          value={status}
                           checked={draft.statusPelunasan === status}
                           onChange={() =>
                             setDraft((current) => ({
                               ...current,
                               statusPelunasan: status,
-                              tanggalPelunasan: status === 'Lunas' ? current.tanggalPelunasan || localDate() : '',
+                              tanggalPelunasan:
+                                status === 'Lunas' ? current.tanggalPelunasan || localDate() : '',
                             }))
                           }
                         />
@@ -861,12 +1156,11 @@ export function FakturOrderanPage({
                       </label>
                     ))}
                   </div>
-                </div>
+                </fieldset>
+
                 {draft.statusPelunasan === 'Lunas' && (
-                  <label className="field">
-                    <span className="field-label">
-                      Tanggal pelunasan <span className="required">*</span>
-                    </span>
+                  <label className="faktur-field">
+                    Tanggal pelunasan <span className="required">*</span>
                     <DateField
                       value={draft.tanggalPelunasan}
                       onChange={(value) => setDraft((current) => ({ ...current, tanggalPelunasan: value }))}
@@ -874,226 +1168,300 @@ export function FakturOrderanPage({
                     />
                   </label>
                 )}
-                <label className="field">
-                  <span className="field-label">Petugas</span>
-                  <input className="input" value={editing?.petugasNama || 'Tercatat otomatis'} readOnly />
+
+                <label className="faktur-field">
+                  Petugas
+                  <input
+                    className="input"
+                    type="text"
+                    readOnly
+                    value={editing?.petugasNama || staffName}
+                    placeholder="Akun login tidak tersedia"
+                  />
                 </label>
               </div>
 
-              <label className="field">
-                <span className="field-label">Catatan</span>
+              <label className="faktur-field faktur-note">
+                Catatan
                 <textarea
                   className="input"
-                  rows={2}
+                  rows={3}
+                  placeholder="Catatan faktur"
                   value={draft.catatan}
                   onChange={(event) => setDraft((current) => ({ ...current, catatan: event.target.value }))}
                 />
               </label>
 
-              <div className="faktur-section-head">
-                <strong>Barang</strong>
-                <button type="button" className="btn btn-secondary" onClick={openLine}>
-                  <IconPlus size={16} /> Tambah barang
+              {formError && <p className="field-error">{formError}</p>}
+
+              <div className="faktur-form-footer">
+                <button type="button" className="btn btn-secondary" onClick={closeForm}>
+                  Cancel
+                </button>
+                <button type="button" className="btn btn-primary" disabled={saving} onClick={() => void submitInvoice()}>
+                  Save
                 </button>
               </div>
+            </div>
 
-              {draft.lines.length === 0 ? (
-                <p className="item-meta">Belum ada barang pada faktur ini.</p>
-              ) : (
-                <div className="faktur-lines">
-                  {draft.lines.map((row) => (
-                    <div key={row.key} className="faktur-line">
-                      <div>
-                        <strong>{row.nama}</strong>
-                        <div className="item-meta">
-                          {formatQuantity(row.jumlah)} {row.satuan} ·{' '}
-                          {row.kemasan === 'per box' ? `${formatQuantity(row.jumlahBox)} box × ${formatQuantity(row.isiPerBox)}` : 'satu unit'}
-                          {row.batch ? ` · batch ${row.batch}` : ''}
-                        </div>
-                        <div className="item-meta">
-                          Modal {formatCurrency(row.hargaModal)} · jual {formatCurrency(row.hargaJual)}
-                        </div>
-                      </div>
-                      <div className="faktur-line-actions">
-                        <strong className="tabular">{formatCurrency(row.tagihan)}</strong>
-                        <button
-                          type="button"
-                          className="btn-link"
-                          onClick={() => {
-                            setLine(lineDraft(row));
+            {lineOpen && line && (
+              <div className="faktur-line-overlay" role="presentation" onClick={() => { setLineOpen(false); setLine(null); setAutocompleteOpen(false); }}>
+                <div
+                  className="modal faktur-modal-sm"
+                  role="dialog"
+                  aria-modal="true"
+                  aria-label={lineIndex === null ? 'Tambah barang' : 'Edit barang'}
+                  onClick={(event) => event.stopPropagation()}
+                >
+                  <div className="faktur-modal-head">
+                    <div className="faktur-modal-title">
+                      <button
+                        type="button"
+                        className="faktur-icon-btn"
+                        aria-label="Kembali"
+                        onClick={() => {
+                          setLineOpen(false);
+                          setLine(null);
+                          setAutocompleteOpen(false);
+                        }}
+                      >
+                        <IconBack size={18} />
+                      </button>
+                      <strong>{lineIndex === null ? 'Tambah barang' : 'Edit barang'}</strong>
+                    </div>
+                  </div>
+
+                  <div className="faktur-form">
+                    <div className="faktur-product">
+                      <label className="faktur-field">
+                        Nama barang <span className="required">*</span>
+                        <input
+                          className="input"
+                          type="search"
+                          placeholder="Ketik nama barang"
+                          autoComplete="off"
+                          value={line.nama}
+                          onFocus={() => setAutocompleteOpen(true)}
+                          onClick={() => setAutocompleteOpen(true)}
+                          onChange={(event) => {
+                            updateLine({ nama: event.target.value, itemId: '' });
+                            setAutocompleteOpen(true);
                             setLineError('');
                           }}
-                        >
-                          Ubah
-                        </button>
-                        <button type="button" className="btn-danger-link" onClick={() => removeLine(row.key)}>
-                          Hapus
-                        </button>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              )}
-
-              {line && (
-                <div className="faktur-line-editor">
-                  <div className="faktur-section-head">
-                    <strong>Rincian barang</strong>
-                    <button type="button" className="btn-link" onClick={() => setLine(null)}>
-                      Batal
-                    </button>
-                  </div>
-
-                  <label className="field">
-                    <span className="field-label">Barang</span>
-                    <input
-                      className="input"
-                      value={line.itemQuery}
-                      placeholder="Cari barang"
-                      onChange={(event) => updateLine({ itemQuery: event.target.value, itemId: '' })}
-                    />
-                    {!line.itemId && line.itemQuery.trim() && (
-                      <div className="faktur-matches">
-                        {items
-                          .filter(
-                            (item) =>
-                              item.type === 'barang' &&
-                              item.status === 'Aktif' &&
-                              item.nama.toLowerCase().includes(line.itemQuery.trim().toLowerCase()),
-                          )
-                          .slice(0, 6)
-                          .map((item) => (
-                            <button
-                              key={item.id}
-                              type="button"
-                              className="btn-link"
-                              onClick={() => chooseItem(item.id)}
-                            >
-                              {item.nama} · stok {formatQuantity(item.stok)}
+                        />
+                      </label>
+                      {autocompleteOpen && (
+                        <div className="faktur-autocomplete" role="listbox">
+                          {productMatches.map((product) => (
+                            <button key={product.id} type="button" role="option" onClick={() => chooseProduct(product.id)}>
+                              {product.nama}
                             </button>
                           ))}
+                          {productMatches.length === 0 && (
+                            <div className="faktur-select-empty">Barang tidak ditemukan</div>
+                          )}
+                        </div>
+                      )}
+                    </div>
+
+                    {selectedItem && (
+                      <div className="faktur-old-prices">
+                        <div>Harga modal lama : {formatRupiah(selectedItem.hargaModal)}</div>
+                        <div>Harga jual lama&nbsp;&nbsp;: {formatRupiah(selectedItem.hargaJual)}</div>
                       </div>
                     )}
-                  </label>
 
-                  <div className="field">
-                    <span className="field-label">Kemasan</span>
-                    <div className="radio-row">
-                      {(['satu unit', 'per box'] as PackageType[]).map((kemasan) => (
-                        <label key={kemasan}>
-                          <input
-                            type="radio"
-                            name="kemasan"
-                            checked={line.kemasan === kemasan}
-                            onChange={() => updateLine({ kemasan })}
-                          />
-                          {kemasan}
-                        </label>
-                      ))}
-                    </div>
-                  </div>
+                    <fieldset className="faktur-field faktur-fieldset">
+                      <legend>
+                        Kemasan <span className="required">*</span>
+                      </legend>
+                      <div className="radio-row">
+                        {(['satu unit', 'per box'] as PackageType[]).map((kemasan) => (
+                          <label key={kemasan}>
+                            <input
+                              type="radio"
+                              name="kemasan"
+                              value={kemasan}
+                              checked={line.kemasan === kemasan}
+                              onChange={() => updateLine({ kemasan })}
+                            />
+                            {kemasan === 'per box' ? 'Per box' : 'Satu unit'}
+                          </label>
+                        ))}
+                      </div>
+                    </fieldset>
 
-                  <div className="form-grid">
                     {line.kemasan === 'per box' ? (
-                      <>
-                        <label className="field">
-                          <span className="field-label">Jumlah box</span>
+                      <div className="faktur-grid-2">
+                        <label className="faktur-field">
+                          Berapa box <span className="required">*</span>
                           <input
                             className="input"
-                            inputMode="decimal"
+                            inputMode="numeric"
+                            placeholder="0"
                             value={line.jumlahBox}
                             onChange={(event) => updateLine({ jumlahBox: event.target.value.replace(/[^0-9.,]/g, '') })}
                           />
                         </label>
-                        <label className="field">
-                          <span className="field-label">Isi per box</span>
+                        <label className="faktur-field">
+                          Isi per box <span className="required">*</span>
                           <input
                             className="input"
-                            inputMode="decimal"
+                            inputMode="numeric"
+                            placeholder="0"
                             value={line.isiPerBox}
                             onChange={(event) => updateLine({ isiPerBox: event.target.value.replace(/[^0-9.,]/g, '') })}
                           />
                         </label>
-                      </>
+                        <div className="faktur-field faktur-span-2">
+                          Jumlah unit
+                          <div className="faktur-readout">
+                            {formatQuantity(lineUnitQuantity)} {line.satuan}
+                          </div>
+                        </div>
+                      </div>
                     ) : (
-                      <label className="field">
-                        <span className="field-label">Jumlah unit</span>
+                      <label className="faktur-field">
+                        Jumlah <span className="required">*</span>
                         <input
                           className="input"
-                          inputMode="decimal"
+                          inputMode="numeric"
+                          placeholder="0"
                           value={line.jumlah}
                           onChange={(event) => updateLine({ jumlah: event.target.value.replace(/[^0-9.,]/g, '') })}
                         />
                       </label>
                     )}
-                    <label className="field">
-                      <span className="field-label">Harga beli</span>
-                      <MoneyInput value={line.hargaBeli} ariaLabel="Harga beli" onChange={(value) => updateLine({ hargaBeli: value })} />
-                    </label>
-                    <label className="field">
-                      <span className="field-label">Diskon</span>
-                      <PercentInput value={line.diskon} ariaLabel="Diskon" onChange={(value) => updateLine({ diskon: value })} />
-                    </label>
-                    <label className="field">
-                      <span className="field-label">PPN</span>
-                      <PercentInput value={line.ppn} ariaLabel="PPN" onChange={(value) => updateLine({ ppn: value })} />
-                    </label>
-                    <label className="field">
-                      <span className="field-label">Margin</span>
-                      <PercentInput value={line.margin} ariaLabel="Margin" onChange={(value) => updateLine({ margin: value })} />
-                    </label>
-                    <label className="field">
-                      <span className="field-label">Harga jual</span>
-                      <MoneyInput value={line.hargaJual} ariaLabel="Harga jual" onChange={(value) => setLine((current) => (current ? { ...current, hargaJual: value } : current))} />
-                    </label>
-                    <label className="field">
-                      <span className="field-label">Batch</span>
-                      <input
-                        className="input"
-                        value={line.batch}
-                        onChange={(event) => updateLine({ batch: event.target.value })}
+
+                    <label className="faktur-field">
+                      {line.kemasan === 'per box' ? 'Harga satu box' : 'Harga satu unit isi'}{' '}
+                      <span className="required">*</span>
+                      <MoneyInput
+                        value={line.hargaBeli}
+                        ariaLabel={line.kemasan === 'per box' ? 'Harga satu box' : 'Harga satu unit isi'}
+                        onChange={(value) => updateLine({ hargaBeli: value })}
                       />
                     </label>
-                    <label className="field">
-                      <span className="field-label">Kedaluwarsa</span>
-                      <DateField
-                        value={line.tanggalExpired}
-                        onChange={(value) => updateLine({ tanggalExpired: value })}
-                        ariaLabel="Tanggal kedaluwarsa"
-                      />
-                    </label>
-                  </div>
 
-                  <div className="faktur-total">
-                    <span>
-                      Harga modal {lineAmountsValue ? formatCurrency(lineAmountsValue.hargaModal) : formatCurrency(0)} · tagihan
-                    </span>
-                    <strong>{lineAmountsValue ? formatCurrency(lineAmountsValue.tagihan) : formatCurrency(0)}</strong>
-                  </div>
+                    <div className="faktur-grid-2">
+                      <label className="faktur-field">
+                        Diskon (%)
+                        <PercentInput value={line.diskon} ariaLabel="Diskon" onChange={(value) => updateLine({ diskon: value })} />
+                      </label>
+                      <label className="faktur-field">
+                        PPN (%)
+                        <PercentInput value={line.ppn} ariaLabel="PPN" onChange={(value) => updateLine({ ppn: value })} />
+                      </label>
+                    </div>
 
-                  {lineError && <p className="field-error">{lineError}</p>}
+                    <div className="faktur-grid-2">
+                      <div className="faktur-field">
+                        Tagihan
+                        <div className="faktur-readout">{formatRupiah(lineNumbers?.tagihan ?? 0)}</div>
+                      </div>
+                      <div className="faktur-field">
+                        Harga modal
+                        <div className="faktur-readout">{formatRupiah(lineNumbers?.hargaModal ?? 0)}</div>
+                      </div>
+                    </div>
 
-                  <div className="faktur-actions">
-                    <button type="button" className="btn btn-primary" onClick={commitLine}>
-                      Simpan barang
-                    </button>
+                    <div className="faktur-grid-2">
+                      <label className="faktur-field">
+                        Margin (%)
+                        <PercentInput
+                          value={line.margin}
+                          ariaLabel="Margin"
+                          onChange={(value) => {
+                            updateLine({ margin: value });
+                            setPriceEdited(false);
+                          }}
+                        />
+                      </label>
+                      <label className="faktur-field">
+                        Harga jual <span className="required">*</span>
+                        <MoneyInput
+                          value={priceEdited ? line.hargaJual : computedSalePrice ? String(computedSalePrice) : ''}
+                          ariaLabel="Harga jual"
+                          onChange={(value) => {
+                            updateLine({ hargaJual: value });
+                            setPriceEdited(true);
+                          }}
+                        />
+                      </label>
+                    </div>
+
+                    <div className="faktur-grid-2">
+                      <label className="faktur-field">
+                        Tanggal expired
+                        <DateField
+                          value={line.tanggalExpired}
+                          onChange={(value) => updateLine({ tanggalExpired: value })}
+                          ariaLabel="Tanggal expired"
+                        />
+                      </label>
+                      <label className="faktur-field">
+                        Batch
+                        <input
+                          className="input"
+                          type="text"
+                          maxLength={80}
+                          value={line.batch}
+                          onChange={(event) => updateLine({ batch: event.target.value })}
+                        />
+                      </label>
+                    </div>
+
+                    {lineError && <p className="field-error">{lineError}</p>}
+
+                    <div className="faktur-form-footer">
+                      <button
+                        type="button"
+                        className="btn btn-secondary"
+                        onClick={() => {
+                          setLineOpen(false);
+                          setLine(null);
+                          setAutocompleteOpen(false);
+                          setLineError('');
+                        }}
+                      >
+                        Cancel
+                      </button>
+                      <button type="button" className="btn btn-primary" onClick={saveLine}>
+                        Simpan barang
+                      </button>
+                    </div>
                   </div>
                 </div>
-              )}
-
-              <div className="faktur-total">
-                <span>Total tagihan</span>
-                <strong>{formatCurrency(draftAmount)}</strong>
               </div>
+            )}
+          </div>
+        </div>
+      )}
 
-              {formError && <p className="field-error">{formError}</p>}
-
-              <div className="faktur-actions">
-                <button type="button" className="btn btn-primary" disabled={saving} onClick={() => void submit()}>
-                  Simpan faktur
-                </button>
-                <button type="button" className="btn btn-secondary" onClick={() => setFormOpen(false)}>
+      {paymentOpen && detail && (
+        <div className="overlay is-top" role="presentation" onClick={() => setPaymentOpen(false)}>
+          <div
+            className="modal faktur-modal-sm"
+            role="dialog"
+            aria-modal="true"
+            aria-label="Tanggal pelunasan"
+            onClick={(event) => event.stopPropagation()}
+          >
+            <div className="faktur-modal-head">
+              <strong>Tanggal pelunasan</strong>
+            </div>
+            <div className="faktur-form">
+              <label className="faktur-field">
+                Tanggal pelunasan <span className="required">*</span>
+                <DateField value={paymentDate} onChange={setPaymentDate} ariaLabel="Tanggal pelunasan" />
+              </label>
+              {paymentError && <p className="field-error">{paymentError}</p>}
+              <div className="faktur-form-footer">
+                <button type="button" className="btn btn-secondary" onClick={() => setPaymentOpen(false)}>
                   Batal
+                </button>
+                <button type="button" className="btn btn-primary" disabled={saving} onClick={() => void submitPayment()}>
+                  Konfirmasi
                 </button>
               </div>
             </div>
@@ -1101,39 +1469,26 @@ export function FakturOrderanPage({
         </div>
       )}
 
-      {paymentFor && (
-        <div className="overlay" role="presentation" onClick={() => setPaymentFor(null)}>
+      {deleteOpen && detail && (
+        <div className="overlay is-top" role="presentation" onClick={() => setDeleteOpen(false)}>
           <div
-            className="modal"
-            role="dialog"
+            className="modal faktur-modal-xs"
+            role="alertdialog"
             aria-modal="true"
-            aria-label={paymentStatus === 'Lunas' ? 'Tandai lunas' : 'Batal lunas'}
+            aria-label="Konfirmasi hapus"
             onClick={(event) => event.stopPropagation()}
           >
-            <div className="modal-header">
-              <strong className="title">{paymentStatus === 'Lunas' ? 'Tandai lunas' : 'Batal lunas'}</strong>
+            <div className="faktur-modal-head">
+              <strong>Konfirmasi hapus</strong>
             </div>
-            <div className="card-pad">
-              <p className="item-meta">
-                {paymentFor.nomorFaktur} · {formatCurrency(paymentFor.totalTagihan)}
-              </p>
-              {paymentStatus === 'Lunas' && (
-                <label className="field">
-                  <span className="field-label">
-                    Tanggal pelunasan <span className="required">*</span>
-                  </span>
-                  <DateField value={paymentDate} onChange={setPaymentDate} ariaLabel="Tanggal pelunasan" />
-                </label>
-              )}
-              {paymentError && <p className="field-error">{paymentError}</p>}
-              <div className="faktur-actions">
-                <button type="button" className="btn btn-primary" disabled={saving} onClick={() => void submitPayment()}>
-                  Simpan
-                </button>
-                <button type="button" className="btn btn-secondary" onClick={() => setPaymentFor(null)}>
-                  Batal
-                </button>
-              </div>
+            <p className="faktur-confirm-text">Yakin hapus faktur ini?</p>
+            <div className="faktur-form-footer is-bordered">
+              <button type="button" className="btn btn-secondary" onClick={() => setDeleteOpen(false)}>
+                Batal
+              </button>
+              <button type="button" className="btn btn-danger" disabled={saving} onClick={() => void removeInvoice()}>
+                Hapus
+              </button>
             </div>
           </div>
         </div>
