@@ -157,13 +157,16 @@ describe('authentication', () => {
     expect(response.status).toBe(401);
   });
 
-  it('rejects an expired session', async () => {
-    const { cookie } = await login('user');
-    db.rawRun('UPDATE sessions SET expires_at = ?', '2020-01-01T00:00:00.000Z');
+  it('keeps a session valid no matter how much time passes', async () => {
+    const { response, cookie } = await login('user');
+    expect(response.headers.get('set-cookie')).toContain('Max-Age=34560000');
+
+    // An old session row must still open the account: no time-based expiry (10.2.32).
+    db.rawRun('UPDATE sessions SET created_at = ?', '2020-01-01T00:00:00.000Z');
 
     const me = await call('/api/me', { headers: { cookie } });
-    expect(me.status).toBe(401);
-    expect(db.raw('SELECT token_hash FROM sessions')).toHaveLength(0);
+    expect(me.status).toBe(200);
+    expect(db.raw('SELECT token_hash FROM sessions')).toHaveLength(1);
   });
 
   it('invalidates the session on logout', async () => {

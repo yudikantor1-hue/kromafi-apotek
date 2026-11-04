@@ -178,11 +178,6 @@ export function JasaPage({ items, outbox, addSignal, saving, onSave }: JasaPageP
               <div className="item-row-top">
                 <span className="item-name">{item.nama}</span>
                 <span className="row-chips">
-                  {item.pending && (
-                    <span className="chip chip-pending" title="Belum dikonfirmasi pusat">
-                      Menunggu
-                    </span>
-                  )}
                   <span className={`chip ${item.status === 'Aktif' ? 'chip-active' : 'chip-inactive'}`}>
                     {item.status}
                   </span>

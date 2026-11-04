@@ -182,11 +182,6 @@ export function ReferencePage({
                   {isLocked(entity, record) && (
                     <span className="chip chip-active" title="Wajib ada dan selalu aktif">Wajib</span>
                   )}
-                  {record.pending && (
-                    <span className="chip chip-pending" title="Belum dikonfirmasi pusat">
-                      Menunggu
-                    </span>
-                  )}
                   <span className={`chip ${record.status === 'Aktif' ? 'chip-active' : 'chip-inactive'}`}>
                     {record.status}
                   </span>

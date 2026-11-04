@@ -13,7 +13,6 @@ import {
 import { hashPassword, verifyPassword } from './password';
 import { normalizeUsername } from './username';
 
-export const SESSION_TTL_MS = 12 * 60 * 60 * 1000;
 const ATTEMPT_LIMIT = 5;
 const ATTEMPT_WINDOW_MS = 15 * 60 * 1000;
 const MIN_PASSWORD_LENGTH = 8;
@@ -89,23 +88,15 @@ export async function clearFailedAttempts(db: D1Database, username: string): Pro
   await db.prepare('DELETE FROM login_attempts WHERE username = ?').bind(username).run();
 }
 
-export async function createSession(
-  db: D1Database,
-  staffId: string,
-  options: { ttlMs?: number } = {},
-): Promise<{ token: string; expiresAt: string }> {
+/** A session ends only at logout, deactivation, or a password reset (10.2.32). */
+export async function createSession(db: D1Database, staffId: string): Promise<{ token: string }> {
   const token = toHex(crypto.getRandomValues(new Uint8Array(32)));
   const tokenHash = await sha256Hex(token);
-  const now = Date.now();
-  const ttlMs = options.ttlMs ?? SESSION_TTL_MS;
-  const expiresAt = new Date(now + ttlMs).toISOString();
   await db
-    .prepare(
-      'INSERT INTO sessions (token_hash, staff_id, created_at, expires_at) VALUES (?, ?, ?, ?)',
-    )
-    .bind(tokenHash, staffId, new Date(now).toISOString(), expiresAt)
+    .prepare('INSERT INTO sessions (token_hash, staff_id, created_at) VALUES (?, ?, ?)')
+    .bind(tokenHash, staffId, nowIso())
     .run();
-  return { token, expiresAt };
+  return { token };
 }
 
 export async function getSessionStaff(request: Request, db: D1Database): Promise<SessionStaff | null> {
@@ -115,18 +106,14 @@ export async function getSessionStaff(request: Request, db: D1Database): Promise
   const row = await db
     .prepare(
       `SELECT s.id, s.name, s.username, s.role, s.status, s.password_hash, s.password_salt,
-              s.password_iterations, s.deactivated_at, sessions.expires_at
+              s.password_iterations, s.deactivated_at
          FROM sessions JOIN staff s ON s.id = sessions.staff_id
         WHERE sessions.token_hash = ?`,
     )
     .bind(tokenHash)
-    .first<StaffRow & { expires_at: string }>();
+    .first<StaffRow>();
 
   if (!row) return null;
-  if (Date.parse(row.expires_at) <= Date.now()) {
-    await db.prepare('DELETE FROM sessions WHERE token_hash = ?').bind(tokenHash).run();
-    return null;
-  }
   return toSessionStaff(row);
 }
 
@@ -178,15 +165,9 @@ export async function handleLogin(request: Request, db: D1Database): Promise<Res
   await clearFailedAttempts(db, username);
   const session = await createSession(db, staff.id);
   return json(
-    { staff: toSessionStaff(staff), expiresAt: session.expiresAt },
+    { staff: toSessionStaff(staff) },
     200,
-    {
-      'set-cookie': sessionCookie(
-        session.token,
-        isSecureRequest(request),
-        Math.floor(SESSION_TTL_MS / 1000),
-      ),
-    },
+    { 'set-cookie': sessionCookie(session.token, isSecureRequest(request)) },
   );
 }
 
@@ -211,12 +192,6 @@ export async function handleSetOwnPassword(request: Request, db: D1Database): Pr
     .run();
 
   const token = readCookie(request, SESSION_COOKIE);
-  const tokenHash = await sha256Hex(token);
-  const expiresAt = new Date(Date.now() + SESSION_TTL_MS).toISOString();
-  await db
-    .prepare('UPDATE sessions SET expires_at = ? WHERE token_hash = ?')
-    .bind(expiresAt, tokenHash)
-    .run();
 
   await db
     .prepare(
@@ -237,11 +212,9 @@ export async function handleSetOwnPassword(request: Request, db: D1Database): Pr
     .run();
 
   return json(
-    { ok: true, staff, expiresAt },
+    { ok: true, staff },
     200,
-    {
-      'set-cookie': sessionCookie(token, isSecureRequest(request), Math.floor(SESSION_TTL_MS / 1000)),
-    },
+    { 'set-cookie': sessionCookie(token, isSecureRequest(request)) },
   );
 }
 

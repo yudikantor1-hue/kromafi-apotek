@@ -9,7 +9,7 @@ import { ProfilApotekPage } from './components/ProfilApotekPage';
 import { ReferencePage } from './components/ReferencePage';
 import { SalesPage } from './components/SalesPage';
 import { SetupPage } from './components/SetupPage';
-import { Shell } from './components/Shell';
+import { Shell, type Notice } from './components/Shell';
 import { api } from './lib/api';
 import { assertImportAllowed, ImportError, readPackage } from './lib/exportImport';
 import {
@@ -104,7 +104,7 @@ export default function App() {
   const [saving, setSaving] = useState(false);
   const [loginError, setLoginError] = useState('');
   const [setupError, setSetupError] = useState('');
-  const [notice, setNotice] = useState('');
+  const [notice, setNotice] = useState<Notice | null>(null);
   const [exportOpen, setExportOpen] = useState(false);
   const [cursor, setCursor] = useState<string | null>(null);
 
@@ -120,10 +120,10 @@ export default function App() {
   const noticeTimer = useRef<number | null>(null);
   const autoSyncedRef = useRef(false);
 
-  const showNotice = useCallback((message: string) => {
-    setNotice(message);
+  const showNotice = useCallback((message: string, kind: Notice['kind'] = 'info') => {
+    setNotice({ kind, message });
     if (noticeTimer.current) window.clearTimeout(noticeTimer.current);
-    noticeTimer.current = window.setTimeout(() => setNotice(''), 5000);
+    noticeTimer.current = window.setTimeout(() => setNotice(null), kind === 'success' ? 2000 : 5000);
   }, []);
 
   const refreshLocal = useCallback(async () => {
@@ -162,9 +162,12 @@ export default function App() {
         await refreshLocal();
 
         if (summary.message === 'session_expired') {
-          setOnline(false);
-          setSession((current) => (current ? { ...current, mode: 'offline' } : current));
-          showNotice('Sesi berakhir. Perubahan tetap tersimpan di perangkat; masuk kembali saat online.');
+          // Sessions no longer expire by time (10.2.32), so a 401 means the account
+          // signed out elsewhere, was deactivated, or had its password reset.
+          await metaDelete(SESSION_KEY);
+          setSession(null);
+          setPhase('login');
+          showNotice('Sesi tidak berlaku lagi. Silakan masuk kembali.');
           return false;
         }
 
@@ -177,11 +180,11 @@ export default function App() {
             parts.push('Tidak dapat menghubungi pusat. Data tetap tersimpan di perangkat ini.');
           }
           if (summary.ok && parts.length === 0) {
-            parts.push(
-              summary.applied + summary.duplicates > 0
-                ? `${summary.applied} perubahan dikonfirmasi pusat.`
-                : 'Data sudah terbaru.',
-            );
+            if (summary.applied + summary.duplicates > 0) {
+              showNotice('Tersimpan.', 'success');
+              return summary.ok;
+            }
+            parts.push('Data sudah terbaru.');
           }
           showNotice(parts.join(' '));
         }
@@ -357,21 +360,18 @@ export default function App() {
     showNotice('Anda sudah keluar. Data di perangkat tetap tersimpan.');
   }
 
-  /** Shared post-save flow: queue locally, then confirm with the centre online. */
+  /**
+   * Queues the change, redraws from the outbox, and lets the centre confirm in
+   * the background, so a save behaves the same online and offline.
+   */
   async function saveLocally(queue: () => Promise<unknown>): Promise<string | null> {
     setSaving(true);
     try {
       await queue();
       await refreshLocal();
 
-      if (navigator.onLine) {
-        await runSync({ silent: true });
-        const remaining = await outboxCount();
-        if (remaining > 0) showNotice('Ada perubahan yang perlu diperiksa. Lihat daftar di halaman terkait.');
-        else showNotice('Perubahan dikonfirmasi pusat.');
-      } else {
-        showNotice('Tersimpan di perangkat. Menunggu dikirim ke pusat.');
-      }
+      if (navigator.onLine) void runSync();
+      else showNotice('Tersimpan di perangkat.');
       return null;
     } catch {
       return 'Gagal menyimpan di perangkat ini. Penyimpanan browser mungkin penuh.';
@@ -388,14 +388,10 @@ export default function App() {
       setEditingId(null);
       await refreshLocal();
 
-      if (navigator.onLine) {
-        await runSync({ silent: true });
-        const remaining = await outboxCount();
-        if (remaining > 0) showNotice('Ada perubahan yang perlu diperiksa. Lihat daftar di halaman Barang.');
-        else showNotice('Perubahan dikonfirmasi pusat.');
-      } else {
-        showNotice('Tersimpan di perangkat. Menunggu dikirim ke pusat.');
-      }
+      // The row is already on screen from the outbox; the centre confirms in the
+      // background so an online save feels exactly like an offline one.
+      if (navigator.onLine) void runSync();
+      else showNotice('Tersimpan di perangkat.');
       return null;
     } catch {
       return 'Gagal menyimpan di perangkat ini. Penyimpanan browser mungkin penuh.';
@@ -430,17 +426,8 @@ export default function App() {
       await queueSaleSave({ payload, saleId, confirmedVersion, authorId: session?.staff.id ?? '' });
       await refreshLocal();
 
-      if (navigator.onLine) {
-        await runSync({ silent: true });
-        const remaining = await outboxCount();
-        showNotice(
-          remaining > 0
-            ? 'Ada nota yang perlu diperiksa. Lihat daftar di halaman Penjualan.'
-            : 'Nota dikonfirmasi pusat.',
-        );
-      } else {
-        showNotice('Nota tersimpan di perangkat. Menunggu dikirim ke pusat.');
-      }
+      if (navigator.onLine) void runSync();
+      else showNotice('Nota tersimpan di perangkat.');
       return null;
     } catch {
       return 'Gagal menyimpan nota di perangkat ini. Penyimpanan browser mungkin penuh.';
@@ -455,17 +442,8 @@ export default function App() {
       await queueSaleLock({ saleId, locked, baseVersion, authorId: session?.staff.id ?? '' });
       await refreshLocal();
 
-      if (navigator.onLine) {
-        await runSync({ silent: true });
-        const remaining = await outboxCount();
-        showNotice(
-          remaining > 0
-            ? 'Perubahan kunci nota belum diterima pusat. Lihat daftar di halaman Penjualan.'
-            : 'Kunci nota dikonfirmasi pusat.',
-        );
-      } else {
-        showNotice('Perubahan kunci tersimpan di perangkat. Menunggu dikirim ke pusat.');
-      }
+      if (navigator.onLine) void runSync();
+      else showNotice('Perubahan kunci tersimpan di perangkat.');
       return null;
     } catch {
       return 'Gagal menyimpan perubahan kunci di perangkat ini.';
@@ -479,7 +457,7 @@ export default function App() {
     const ok = await runSync();
     if (ok) {
       setPhase('app');
-      showNotice('Data apotek dimuat dari Cloudflare.');
+      showNotice('Data apotek dimuat dari Cloudflare.', 'success');
     } else {
       setSetupError('Gagal memuat data dari pusat. Periksa koneksi lalu coba lagi, atau impor file.');
     }
@@ -662,7 +640,7 @@ export default function App() {
           onDiscard={async (operationId) => {
             await discardOperation(operationId);
             await refreshLocal();
-            showNotice('Nota yang ditahan sudah dibuang dari perangkat ini.');
+            showNotice('Nota yang ditahan sudah dibuang dari perangkat ini.', 'success');
           }}
         />
       )}
@@ -769,7 +747,7 @@ export default function App() {
           onDiscard={async (operationId) => {
             await discardOperation(operationId);
             await refreshLocal();
-            showNotice('Perubahan yang ditahan sudah dibuang dari perangkat ini.');
+            showNotice('Perubahan yang ditahan sudah dibuang dari perangkat ini.', 'success');
           }}
           saving={saving}
         />

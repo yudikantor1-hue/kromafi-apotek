@@ -248,10 +248,6 @@ export function BarangPage({
                     <span className="chip chip-held" title="Ditahan untuk diperiksa">
                       Ditahan
                     </span>
-                  ) : item.pending ? (
-                    <span className="chip chip-pending" title="Belum dikonfirmasi pusat">
-                      Menunggu
-                    </span>
                   ) : null}
                   <span className={`chip ${item.status === 'Aktif' ? 'chip-active' : 'chip-inactive'}`}>
                     {item.status}

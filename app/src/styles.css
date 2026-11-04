@@ -400,6 +400,19 @@ p {
   color: #92400e;
 }
 
+/* A confirmation shows a check mark and no prose. */
+.notice-success {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 40px;
+  height: 40px;
+  padding: 0;
+  border-color: rgba(22, 163, 74, 0.3);
+  background: var(--success-tint);
+  color: var(--success);
+}
+
 /* ---------- App shell ---------- */
 
 .shell {
@@ -562,16 +575,21 @@ p {
   flex-shrink: 0;
 }
 
+/* The queued-work count is a square badge shaped like the icon buttons beside it. */
 .queue-badge {
   display: inline-flex;
   align-items: center;
-  gap: 4px;
-  border-radius: 999px;
-  background: var(--primary-tint);
+  justify-content: center;
+  width: 40px;
+  height: 40px;
+  min-width: 40px;
+  padding: 0;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-action);
+  background: var(--surface);
   color: var(--primary);
-  font-size: 11px;
+  font-size: 13px;
   font-weight: 700;
-  padding: 4px 8px;
 }
 
 .status-dot {
@@ -721,10 +739,114 @@ p {
   border-color: #fecaca;
 }
 
-.chip-pending {
-  background: var(--primary-tint);
-  color: var(--primary);
-  border-color: rgba(59, 82, 224, 0.3);
+/* ---------- Date field (prototype calendar, Monday-first) ---------- */
+
+.date-field {
+  position: relative;
+  display: block;
+}
+
+.date-field .input {
+  padding-right: 36px;
+  cursor: pointer;
+}
+
+.date-field .date-icon {
+  position: absolute;
+  right: 12px;
+  top: 50%;
+  transform: translateY(-50%);
+  pointer-events: none;
+  color: var(--secondary);
+}
+
+.date-panel {
+  position: fixed;
+  z-index: 80;
+  padding: 10px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-action);
+  background: var(--surface);
+  box-shadow: var(--shadow-modal);
+}
+
+.date-panel-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 8px;
+  padding: 0 2px 8px;
+  border-bottom: 1px solid var(--border);
+}
+
+.date-panel-title {
+  font-size: 13px;
+  font-weight: 700;
+  text-transform: capitalize;
+}
+
+.date-nav {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  border: none;
+  border-radius: var(--radius-std);
+  background: transparent;
+  color: var(--secondary);
+  cursor: pointer;
+}
+
+.date-nav:hover {
+  background: var(--bg);
+}
+
+.date-weekdays,
+.date-grid {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  text-align: center;
+}
+
+.date-weekdays span {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 28px;
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--secondary);
+}
+
+.date-cell {
+  height: 32px;
+  border: none;
+  border-radius: var(--radius-std);
+  background: transparent;
+  color: var(--text);
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.date-cell:hover:not(:disabled) {
+  background: var(--bg);
+}
+
+.date-cell.is-today {
+  box-shadow: inset 0 0 0 1px var(--primary);
+}
+
+.date-cell.is-selected {
+  background: var(--primary);
+  color: #fff;
+}
+
+.date-cell:disabled {
+  color: var(--disabled);
+  cursor: default;
 }
 
 .chip-held {

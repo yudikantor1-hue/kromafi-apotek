@@ -9,8 +9,8 @@ import {
   IconCard,
   IconCart,
   IconChart,
+  IconCheck,
   IconClipboard,
-  IconClock,
   IconExpired,
   IconHistory,
   IconInvoice,
@@ -51,6 +51,12 @@ const NAV_ITEMS: NavEntry[] = [
   { label: 'Profil apotek', icon: IconBuilding },
 ];
 
+/**
+ * A confirmation carries no prose: the client asked for a check mark only, so
+ * the message stays on the element for assistive technology but not on screen.
+ */
+export type Notice = { kind: 'success'; message: string } | { kind: 'info'; message: string };
+
 interface ShellProps {
   session: Session;
   /** The name from the database; the fallback keeps the shell usable before it loads. */
@@ -63,7 +69,7 @@ interface ShellProps {
   syncing: boolean;
   online: boolean;
   lastSync: string | null;
-  notice: string;
+  notice: Notice | null;
   enabledPages: string[];
   headerActions?: ReactNode;
   children: ReactNode;
@@ -151,11 +157,11 @@ export function Shell({
             />
             {queueCount > 0 && (
               <span
-                className="queue-badge"
+                className="queue-badge tabular"
                 title={`${queueCount} perubahan menunggu dikirim ke pusat`}
+                aria-label={`${queueCount} perubahan menunggu dikirim ke pusat`}
               >
-                <IconClock />
-                <span className="tabular">{queueCount}</span>
+                {queueCount}
               </span>
             )}
             <button
@@ -172,11 +178,17 @@ export function Shell({
           </div>
         </header>
 
-        {notice && (
-          <div className="sync-notice" role="status">
-            {notice}
-          </div>
-        )}
+        {notice &&
+          (notice.kind === 'success' ? (
+            <div className="notice notice-success" role="status" aria-live="polite" title="Berhasil">
+              <IconCheck size={18} />
+              <span className="sr-only">{notice.message}</span>
+            </div>
+          ) : (
+            <div className="sync-notice" role="status">
+              {notice.message}
+            </div>
+          ))}
 
         <main className="content">
           <div className="content-inner">{children}</div>

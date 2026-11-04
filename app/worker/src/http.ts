@@ -34,13 +34,20 @@ export function readCookie(request: Request, name: string): string {
   return '';
 }
 
-export function sessionCookie(token: string, secure: boolean, maxAgeSeconds: number): string {
+/**
+ * A session never expires by time (10.2.32). The cookie still carries the
+ * longest lifetime a browser honours, so closing the browser does not sign the
+ * person out; only logout, deactivation, or a password reset ends the session.
+ */
+export const SESSION_COOKIE_MAX_AGE_SECONDS = 400 * 24 * 60 * 60;
+
+export function sessionCookie(token: string, secure: boolean): string {
   const parts = [
     `${SESSION_COOKIE}=${token}`,
     'Path=/',
     'HttpOnly',
     'SameSite=Lax',
-    `Max-Age=${maxAgeSeconds}`,
+    `Max-Age=${SESSION_COOKIE_MAX_AGE_SECONDS}`,
   ];
   if (secure) parts.push('Secure');
   return parts.join('; ');

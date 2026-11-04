@@ -11,6 +11,7 @@ import type {
   VisibleSale,
 } from '../types';
 import { formatCurrency, formatDateTime, formatQuantity } from '../lib/format';
+import { DateField } from './DateField';
 import { IconBack, IconEdit, IconPlus, IconReceipt } from './Icons';
 
 const CASH = 'tunai';
@@ -361,13 +362,7 @@ export function SalesPage({
       <section className="card sale-filters">
         <label className="field" style={{ margin: 0 }}>
           <span className="field-label">Tanggal</span>
-          <input
-            className="input"
-            type="date"
-            value={filterDate}
-            aria-label="Tanggal nota"
-            onChange={(event) => setFilterDate(event.target.value)}
-          />
+          <DateField value={filterDate} onChange={setFilterDate} ariaLabel="Tanggal nota" />
         </label>
         <label className="field" style={{ margin: 0 }}>
           <span className="field-label">Metode pembayaran</span>
@@ -399,7 +394,6 @@ export function SalesPage({
               <div className="item-row-top">
                 <span className="sale-amount tabular">{formatCurrency(sale.totalTagihanFinal)}</span>
                 <span className="row-chips">
-                  {sale.pending && <span className="chip chip-pending">Menunggu</span>}
                   {sale.locked && <LockIcon size={14} />}
                 </span>
               </div>
@@ -947,11 +941,10 @@ function SaleFormModal({ sale, items, methods, doctors, saving, onClose, onSubmi
               <span className="field-label">
                 Tanggal <span className="required">*</span>
               </span>
-              <input
-                className="input"
-                type="date"
+              <DateField
                 value={draft.tanggal}
-                onChange={(event) => setDraft({ ...draft, tanggal: event.target.value })}
+                onChange={(value) => setDraft({ ...draft, tanggal: value })}
+                ariaLabel="Tanggal nota"
               />
             </label>
 

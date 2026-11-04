@@ -50,13 +50,13 @@ export const api = {
   pharmacy: () => request<{ namaApotek: string }>('/api/pharmacy'),
 
   login: (username: string, password: string) =>
-    request<{ staff: Staff; expiresAt: string; requiresPasswordChange?: boolean }>('/api/login', {
+    request<{ staff: Staff }>('/api/login', {
       method: 'POST',
       body: JSON.stringify({ username, password }),
     }),
 
   setOwnPassword: (password: string) =>
-    request<{ ok: true; staff: Staff; expiresAt: string }>('/api/session/password', {
+    request<{ ok: true; staff: Staff }>('/api/session/password', {
       method: 'POST',
       body: JSON.stringify({ password }),
     }),
