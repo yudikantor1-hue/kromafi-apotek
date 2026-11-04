@@ -115,7 +115,7 @@ Goal: create the production application foundation and secure access before enab
 
 ### 3.4 Authorization
 
-- **3.4.1** Enforce the approved role matrix on every protected API mutation and read. — **75%** (enforced for Barang, staff, and audit endpoints; the other domains do not exist yet)
+- **3.4.1** Enforce the approved role matrix on every protected API mutation and read. — **75%** (enforced on every implemented endpoint; automated tests cover Barang, staff, and audit)
 
 ### 3.5 Abuse limits and audit
 
@@ -239,11 +239,11 @@ Goal: ensure the app remains operational and recoverable in real-world condition
 
 ### 7.2 Visible sync states
 
-- **7.2.1** Implement visible pending/synced/conflict/failed states and safe retry/synchronization for all offline-enabled operations. — **25%** (the Barang screen shows pending, held with a reason, and synced; the other domains do not exist yet)
+- **7.2.1** Implement visible pending/synced/conflict/failed states and safe retry/synchronization for all offline-enabled operations. — **25%** (the Barang screen shows pending, held with a reason, and synced; the other screens reuse the same outbox but do not yet surface held work in their own lists)
 
 ### 7.3 Idempotency and conflict handling
 
-- **7.3.1** Add idempotent write handling, server-side revalidation, and domain-specific conflict detection/resolution. — **25%** (idempotent replay, revalidation, and the item conflict rules are verified under `workerd`; the other domains do not exist yet)
+- **7.3.1** Add idempotent write handling, server-side revalidation, and domain-specific conflict detection/resolution. — **25%** (idempotent replay, revalidation, and the item conflict rules are verified under `workerd`; the newer domains reuse the same engine without their own conflict tests yet)
 
 ### 7.4 Backup
 
