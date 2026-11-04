@@ -601,6 +601,47 @@ These are not blockers for an unrelated first slice. Resolve each before impleme
   - Recorded answer: **no session time limit for any role.** A session stays valid until the person signs out; the server never ends it because time has passed, and there is no per-role duration to configure. Signing out, deactivating the account, and an admin password reset remain the only ways a session ends.
   - Implemented in `worker/src/auth.ts`, `worker/src/http.ts`, and `worker/migrations/0011_sessions_no_expiry.sql`; deployed on 4 November 2026 (12.1.13).
 
+- **10.2.33 — Does saving a supplier invoice update the item's cost and selling price in the catalogue?**
+  - Why: the line form shows *harga modal lama* and *harga jual lama* beside the new prices, which suggests the new prices replace them, but the prototype never writes to the Barang store; production must decide whether receiving goods changes master data.
+  - Owner: client. State: **Answered** (4 November 2026).
+  - Recorded answer: **yes, both prices follow the receipt.** Saving an invoice writes each line's `harga_modal` and `harga_jual` into `items` for that item in the same transaction as the stock increase, so the catalogue always shows the prices of the most recent receipt; when an item appears on several lines, the last line wins. The item keeps its normal versioning and the change is attributed to the staff member who saved the invoice, so other devices receive the new prices through the snapshot.
+  - Not implemented yet: the Faktur orderan tables are planned; the catalogue update ships with that migration.
+
+- **10.2.34 — Is the due date required on a supplier invoice?**
+  - Why: Tagihan selects invoices by the month of `jatuh_tempo`, so an invoice without a due date never appears there.
+  - Owner: client. State: **Answered** (4 November 2026).
+  - Recorded answer: **the due date is required.** `purchase_invoices.jatuh_tempo` is `NOT NULL`, the server rejects an invoice without it, and an invoice can never fall outside the monthly Tagihan list. The form marks the field with a required marker instead of treating it as optional.
+  - Not implemented yet: the Faktur orderan tables are planned.
+
+- **10.2.35 — May an unpaid supplier invoice be deleted after its stock was already added?**
+  - Why: stock increases when the invoice is saved (12.6.3), so deleting must either reverse the stock or be forbidden; the prototype deletes freely because it never touches stock.
+  - Owner: client. State: **Answered** (4 November 2026).
+  - Recorded answer: **an unpaid invoice may be deleted, and the stock it added is taken back.** Deleting writes one `koreksi_masuk` movement per goods line and decrements `items.stok` by the same quantity, all in one transaction, and keeps the audit event so the receipt is still explainable. A paid invoice stays locked and cannot be deleted until an admin cancels its payment first. The delete travels as its own sync operation with the invoice version, so a device cannot delete an invoice another device already paid.
+  - Not implemented yet: the Faktur orderan tables are planned.
+
+- **10.2.36 — Where are batch code and expiry date stored?**
+  - Why: the prototype keeps both on the invoice line, while the Expired menu later needs the remaining quantity per batch.
+  - Owner: client. State: **Answered** (4 November 2026).
+  - Recorded answer: **batch and expiry are recorded on the invoice line, and stock stays one number per item.** `purchase_invoice_lines` keeps `batch` and `tanggal_expired`; `items.stok` is never split per batch, so no `batches` table is created. Faktur orderan, Kartu stok, and Expired read the batch and expiry from the received lines, and a disposal or supplier return from Expired reduces the item's single stock number. Exact remaining quantity per batch is therefore not tracked, which the client accepted.
+  - Not implemented yet: the Faktur orderan tables are planned.
+
+- **10.2.37 — Does Tagihan list paid invoices?**
+  - Why: the prototype hides paid invoices and shows *Semua faktur sudah lunas* when none remain; their history stays in Faktur orderan.
+  - Owner: client. State: **Deferred** (4 November 2026).
+  - Reason: the client limited the current discussion to the Faktur orderan menu, so the contents of Tagihan are decided when that screen is designed. The prototype behaviour (unpaid only) remains the default until then.
+
+- **10.2.38 — May one invoice contain the same item on more than one line?**
+  - Why: the same item can arrive in two batches or two expiry dates on one supplier invoice, and the prototype allows repeated lines.
+  - Owner: client. State: **Answered** (4 November 2026).
+  - Recorded answer: **the same item may appear on several lines of one invoice.** Each line stands alone with its own quantity, batch, and expiry, and stock sums every line of that item; the invoice detail keeps the order in which the supplier document listed them. Nothing is merged automatically.
+  - Not implemented yet: the Faktur orderan tables are planned.
+
+- **10.2.39 — May a saved invoice be edited while it is unpaid?**
+  - Why: the prototype edits an unpaid invoice in place, but its stock has already been added, so an edit has to move stock by the difference instead of starting over.
+  - Owner: client. State: **Answered** (4 November 2026).
+  - Recorded answer: **an unpaid invoice may be edited.** The server replaces its lines in one transaction and moves stock only by the difference per item: one `masuk` movement when the new quantity is larger, one `koreksi_masuk` when it is smaller, and nothing when the quantity is unchanged. The invoice version rises, header fields may change in the same edit, and the audit event keeps the before and after values. A paid invoice cannot be edited until an admin cancels its payment.
+  - Not implemented yet: the Faktur orderan tables are planned.
+
 ### 10.3 Decisions already settled — do not ask again
 
 - **10.3.1** The product is a PWA for one pharmacy, used by multiple staff on multiple devices.
