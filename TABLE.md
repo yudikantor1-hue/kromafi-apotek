@@ -5,7 +5,7 @@
 Nine screens — Penjualan, Barang, Jasa, Petugas, the four reference lists, and Profil apotek — exist in `app/`: a React/Vite PWA, a Cloudflare
 Worker API, D1 migrations, and per-device IndexedDB storage. Verified by automated tests against the
 Worker handler. The application is deployed as a trial to the client's own Cloudflare account with
-migrations `0001`–`0010` applied remotely, so the sales schema is live in the hosted database.
+migrations `0001`–`0011` applied remotely, so the sales schema and the session change are live in the hosted database.
 
 ## Implemented application storage — Cloudflare D1 and per-device IndexedDB
 
@@ -26,10 +26,10 @@ migrations `0001`–`0010` applied remotely, so the sales schema is live in the 
 
 **`sessions`** — signed-in browser sessions.
 
-- Fields: `token_hash` (primary key), `staff_id`, `created_at`, `expires_at`.
+- Fields: `token_hash` (primary key), `staff_id`, `created_at`.
 - Keys: primary key `token_hash`; index `idx_sessions_staff`.
-- Access and lifecycle: the raw session token exists only in the browser's HttpOnly cookie; D1 stores its SHA-256 hash. Sessions expire after 12 hours and are deleted on logout or expiry.
-- Source of truth: [0001_init.sql](app/worker/migrations/0001_init.sql).
+- Access and lifecycle: the raw session token exists only in the browser's HttpOnly cookie; D1 stores its SHA-256 hash. A session has no time limit (10.2.32): it ends only at logout, deactivation, or a password reset, and `0011_sessions_no_expiry.sql` dropped `expires_at`.
+- Source of truth: [0001_init.sql](app/worker/migrations/0001_init.sql), [0011_sessions_no_expiry.sql](app/worker/migrations/0011_sessions_no_expiry.sql).
 
 **`login_attempts`** — failed sign-in counting per username.
 

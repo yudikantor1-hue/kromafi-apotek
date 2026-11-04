@@ -264,6 +264,14 @@ The schedule, retention period, and who verifies a restore are still undecided (
 - History arrives by cursor (`server_updated_at`): a device asks for notas newer than its cursor, and a fresh device receives the newest page first, then one older page per sync until it reaches the start (10.2.28).
 - The screen follows the approved prototype: a date and payment-method filter, a sticky total-omzet bar, a nota list of amount plus item names with Load more, a detail view whose lines open their own panel, and a two-step form (nota, then one item at a time). Deleting a saved nota is not built yet (10.2.31).
 
+**Sessions and screen conventions**
+
+- A session has no time limit (10.2.32). The cookie carries the longest lifetime a browser honours (400 days), the server never ends a session because time passed, and only logout, deactivation, or a password reset invalidates one. A `401` therefore means the session is gone, not stale, and the app returns to the login screen.
+- Only *held* work keeps a chip: rows that have not reached the centre look exactly like confirmed ones, and the header badge is the one place that reports the queue. That badge is a square count shaped like the icon buttons beside it.
+- Confirmations show a check mark with no text; messages that carry information (import totals, held work, failures) stay textual.
+- Saving never waits for the centre: the form closes, the row appears from the outbox, and the push runs in the background, so an online save feels the same as an offline one.
+- Dates use one calendar component, Monday-first with Indonesian month names and no Clear/Today buttons; choosing a day closes it and applies the value.
+
 **Password recovery (no email service)**
 
 - An admin issues eight one-time codes per staff member from the Petugas screen; the first admin
