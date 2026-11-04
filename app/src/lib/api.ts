@@ -2,6 +2,7 @@ import type {
   Item,
   OutboxOperation,
   PharmacyProfile,
+  PurchaseInvoice,
   Reference,
   Sale,
   Staff,
@@ -65,11 +66,23 @@ export const api = {
 
   me: () => request<{ staff: Staff; serverTime: string }>('/api/me'),
 
-  /** `salesSince` carries new notas; `salesBefore` fills older history (10.2.28). */
-  snapshot: (salesSince?: string, salesBefore?: string) => {
+  /**
+   * `salesSince` and `invoicesSince` carry new work; the matching `before`
+   * values fill older history one page at a time (10.2.28).
+   */
+  snapshot: (
+    options: {
+      salesSince?: string;
+      salesBefore?: string;
+      invoicesSince?: string;
+      invoicesBefore?: string;
+    } = {},
+  ) => {
     const params = new URLSearchParams();
-    if (salesSince) params.set('salesSince', salesSince);
-    if (salesBefore) params.set('salesBefore', salesBefore);
+    if (options.salesSince) params.set('salesSince', options.salesSince);
+    if (options.salesBefore) params.set('salesBefore', options.salesBefore);
+    if (options.invoicesSince) params.set('invoicesSince', options.invoicesSince);
+    if (options.invoicesBefore) params.set('invoicesBefore', options.invoicesBefore);
     const query = params.toString();
     return request<{
       items: Item[];
@@ -79,6 +92,7 @@ export const api = {
       suppliers: Reference[];
       settings: PharmacyProfile | null;
       sales: Sale[];
+      invoices: PurchaseInvoice[];
       cursor: string;
       serverTime: string;
     }>(`/api/sync/snapshot${query ? `?${query}` : ''}`);

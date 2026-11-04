@@ -3,6 +3,7 @@ import { can } from './permissions';
 import type { D1Database } from './env';
 import { apiError, isIsoTimestamp, json, nowIso } from './http';
 import { loadReferenceBundle } from './reference';
+import { INVOICE_PAGE_SIZE, loadInvoicesPage } from './purchaseInvoices';
 import { SALES_PAGE_SIZE, loadSalesPage } from './sales';
 
 export const ITEM_STATUSES = ['Aktif', 'Tidak aktif'] as const;
@@ -139,6 +140,8 @@ export async function handleSnapshot(request: Request, db: D1Database, staff: Se
   const params = new URL(request.url).searchParams;
   const salesSince = (params.get('salesSince') ?? '').trim();
   const salesBefore = (params.get('salesBefore') ?? '').trim();
+  const invoicesSince = (params.get('invoicesSince') ?? '').trim();
+  const invoicesBefore = (params.get('invoicesBefore') ?? '').trim();
   return json({
     items: await loadItems(db),
     ...reference,
@@ -147,6 +150,12 @@ export async function handleSnapshot(request: Request, db: D1Database, staff: Se
       isIsoTimestamp(salesSince) ? salesSince : '',
       SALES_PAGE_SIZE,
       isIsoTimestamp(salesBefore) ? salesBefore : '',
+    ),
+    invoices: await loadInvoicesPage(
+      db,
+      isIsoTimestamp(invoicesSince) ? invoicesSince : '',
+      INVOICE_PAGE_SIZE,
+      isIsoTimestamp(invoicesBefore) ? invoicesBefore : '',
     ),
     cursor: serverTime,
     serverTime,

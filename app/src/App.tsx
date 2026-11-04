@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { BarangPage } from './components/BarangPage';
 import { ExportModal } from './components/ExportModal';
+import { FakturOrderanPage } from './components/FakturOrderanPage';
 import { IconDownload, IconPlus, IconSearch } from './components/Icons';
 import { JasaPage } from './components/JasaPage';
 import { LoginPage } from './components/LoginPage';
@@ -28,9 +29,13 @@ import {
   lastSyncAt,
   loadVisibleItems,
   loadVisiblePharmacy,
+  loadVisiblePurchaseInvoices,
   loadVisibleReferences,
   loadVisibleSales,
   PHARMACY_KEY,
+  queueInvoiceDelete,
+  queueInvoicePayment,
+  queueInvoiceSave,
   queueItemSave,
   queuePharmacySave,
   queueReferenceSave,
@@ -43,8 +48,10 @@ import type {
   Item,
   ItemPayload,
   OutboxOperation,
+  PaymentStatus,
   PharmacyPayload,
   PharmacyProfile,
+  PurchaseInvoicePayload,
   Reference,
   ReferenceEntity,
   ReferencePayload,
@@ -52,6 +59,7 @@ import type {
   Session,
   VisibleItem,
   VisiblePharmacy,
+  VisiblePurchaseInvoice,
   VisibleReference,
   VisibleSale,
 } from './types';
@@ -91,6 +99,7 @@ export default function App() {
   const [session, setSession] = useState<Session | null>(null);
   const [items, setItems] = useState<VisibleItem[]>([]);
   const [sales, setSales] = useState<VisibleSale[]>([]);
+  const [invoices, setInvoices] = useState<VisiblePurchaseInvoice[]>([]);
   const [references, setReferences] = useState<Record<ReferenceEntity, VisibleReference[]>>(EMPTY_REFERENCES);
   const [pharmacy, setPharmacy] = useState<VisiblePharmacy | null>(null);
   const [pharmacyName, setPharmacyName] = useState('');
@@ -128,16 +137,19 @@ export default function App() {
 
   const refreshLocal = useCallback(async () => {
     const { items: visible, outbox: queued } = await loadVisibleItems();
-    const [cabinets, paymentMethods, doctors, suppliers, profile, visibleSales] = await Promise.all([
-      loadVisibleReferences('cabinet'),
-      loadVisibleReferences('payment_method'),
-      loadVisibleReferences('doctor'),
-      loadVisibleReferences('supplier'),
-      loadVisiblePharmacy(),
-      loadVisibleSales(),
-    ]);
+    const [cabinets, paymentMethods, doctors, suppliers, profile, visibleSales, visibleInvoices] =
+      await Promise.all([
+        loadVisibleReferences('cabinet'),
+        loadVisibleReferences('payment_method'),
+        loadVisibleReferences('doctor'),
+        loadVisibleReferences('supplier'),
+        loadVisiblePharmacy(),
+        loadVisibleSales(),
+        loadVisiblePurchaseInvoices(),
+      ]);
     setItems(visible);
     setSales(visibleSales.sales);
+    setInvoices(visibleInvoices.invoices);
     setReferences({
       cabinet: cabinets,
       payment_method: paymentMethods,
@@ -452,6 +464,70 @@ export default function App() {
     }
   }
 
+  async function handleInvoiceSave(payload: PurchaseInvoicePayload, invoiceId?: string, confirmedVersion = 0) {
+    setSaving(true);
+    try {
+      await queueInvoiceSave({ payload, invoiceId, confirmedVersion, authorId: session?.staff.id ?? '' });
+      await refreshLocal();
+
+      if (navigator.onLine) void runSync();
+      else showNotice('Faktur tersimpan di perangkat.');
+      return null;
+    } catch {
+      return 'Gagal menyimpan faktur di perangkat ini. Penyimpanan browser mungkin penuh.';
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function handleInvoicePayment(
+    invoiceId: string,
+    status: PaymentStatus,
+    tanggalPelunasan: string | null,
+    baseVersion: number,
+  ) {
+    setSaving(true);
+    try {
+      await queueInvoicePayment({
+        invoiceId,
+        status,
+        tanggalPelunasan,
+        baseVersion,
+        authorId: session?.staff.id ?? '',
+      });
+      await refreshLocal();
+
+      if (navigator.onLine) void runSync();
+      else showNotice('Status pelunasan tersimpan di perangkat.');
+      return null;
+    } catch {
+      return 'Gagal menyimpan status pelunasan di perangkat ini.';
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function handleInvoiceDelete(invoiceId: string, baseVersion: number) {
+    setSaving(true);
+    try {
+      const queued = await queueInvoiceDelete({
+        invoiceId,
+        baseVersion,
+        authorId: session?.staff.id ?? '',
+      });
+      await refreshLocal();
+
+      if (!queued) showNotice('Faktur yang belum terkirim sudah dibatalkan.', 'success');
+      else if (navigator.onLine) void runSync();
+      else showNotice('Penghapusan faktur tersimpan di perangkat.');
+      return null;
+    } catch {
+      return 'Gagal menghapus faktur di perangkat ini.';
+    } finally {
+      setSaving(false);
+    }
+  }
+
   async function handleSetupSync() {
     setSetupError('');
     const ok = await runSync();
@@ -552,6 +628,8 @@ export default function App() {
     headerActions = referenceAddButton(`Tambah ${PAGE_LABELS[page]}`);
   } else if (page === 'penjualan') {
     headerActions = referenceAddButton('Tambah penjualan');
+  } else if (page === 'faktur orderan') {
+    headerActions = referenceAddButton('Tambah faktur orderan');
   } else if (page === 'profil apotek') {
     headerActions = null;
   } else {
@@ -606,6 +684,7 @@ export default function App() {
       onNavigate={setPage}
       enabledPages={[
         'penjualan',
+        'faktur orderan',
         'barang',
         'jasa',
         'petugas',
@@ -641,6 +720,25 @@ export default function App() {
             await discardOperation(operationId);
             await refreshLocal();
             showNotice('Nota yang ditahan sudah dibuang dari perangkat ini.', 'success');
+          }}
+        />
+      )}
+
+      {page === 'faktur orderan' && (
+        <FakturOrderanPage
+          invoices={invoices}
+          items={items}
+          outbox={outbox}
+          suppliers={references.supplier}
+          saving={saving}
+          addSignal={addSignal}
+          onSave={handleInvoiceSave}
+          onPayment={handleInvoicePayment}
+          onDelete={handleInvoiceDelete}
+          onDiscard={async (operationId) => {
+            await discardOperation(operationId);
+            await refreshLocal();
+            showNotice('Perubahan faktur yang ditahan sudah dibuang dari perangkat ini.', 'success');
           }}
         />
       )}

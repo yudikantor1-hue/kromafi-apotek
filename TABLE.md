@@ -105,15 +105,17 @@ migrations `0001`–`0011` applied remotely, so the sales schema and the session
 
 ### Device storage (IndexedDB `kromafi-apotek`, version 4)
 
-- **`meta`** — key/value: `deviceId`, current `session`, `lastSyncAt`, `cursor`, `salesCursor`/`salesFloor`/`salesBackfilled` (the window of notas this device keeps, 10.2.28), `offlineUsername`, `pharmacyProfile` (the confirmed pharmacy profile). Access: local only; cleared only by explicit device reset.
+- **`meta`** — key/value: `deviceId`, current `session`, `lastSyncAt`, `cursor`, `salesCursor`/`salesFloor`/`salesBackfilled` (the window of notas this device keeps, 10.2.28), `invoicesCursor`/`invoicesFloor`/`invoicesBackfilled` (the same window for supplier invoices), `offlineUsername`, `pharmacyProfile` (the confirmed pharmacy profile). Access: local only; cleared only by explicit device reset.
 - **`items`** — last server-confirmed item snapshot, keyed by `id`. Never holds pending edits.
 - **`sales`** — last server-confirmed notas, keyed by `id`, each carrying its lines. A nota saved on this device stays in the outbox until the centre answers and is layered on top of this store, so a confirmed nota is never overwritten by work that has not been accepted.
+- **`purchaseInvoices`** — last server-confirmed supplier invoices, keyed by `id`, each carrying its lines. A deleted invoice travels as a tombstone (`deletedAt`) and the device removes the row.
 - **`cabinets`, `paymentMethods`, `doctors`, `suppliers`** — last server-confirmed rows of each reference list, keyed by `id`. Pending edits stay in the outbox and are layered on top when a screen reads the list, so a confirmed row is never overwritten locally by work the centre has not answered.
 - **`outbox`** — queued operations keyed by `operationId`, index `itemId`. Fields: `action`, `itemId`, `authorId` (account that recorded the change), `baseVersion`, `deviceTime`, `payload`, `queuedAt`, `status` (`pending`/`held`/`cancelled`), `message`. Survives reloads; a held operation stays visible until it is corrected and re-sent or discarded, and a `cancelled` operation (work the centre has refused for good, such as work recorded by an account that was deactivated before it arrived) is deleted by the device without notice and never sent again, so it survives only in the server ledger (10.2.13).
 - **`credentials`** — one local credential per staff username: `username`, `staffId`, `name`, `role`, `hash`, `salt`, `iterations`, `provisionedAt`. Derived on the device from the password at online sign-in; the server hash is never copied to the device.
 
-Business records now include `items`, `sales`, `sale_lines`, `stock_movements`, and
-`audit_events`; invoices, batches, and reports are still planned.
+Business records now include `items`, `sales`, `sale_lines`, `purchase_invoices`,
+`purchase_invoice_lines`, `stock_movements`, and `audit_events`; Tagihan, stocktakes, expired,
+and reports are still planned.
 
 ## Prototype inventory — browser localStorage (approved baseline)
 
@@ -154,9 +156,8 @@ Source of truth: the approved prototype files under `UI/src/js/`; the runtime ou
 Not yet implemented. Their design is subject to the approved domain rules, offline synchronization
 requirements, and migrations in `PLAN.md`.
 
-- `batches` — batch code and expiry date per invoice line.
-- `invoices`, `invoice_lines` — supplier invoices with batch and expiry.
-- `stock_movements` — implemented by `0010_sales.sql`: one row per stock change, the single source for stock history. A sale writes one row per goods line and the server decrements `items.stok` in the same transaction (10.2.27); invoices and stocktakes will write to the same table.
+- Stocktakes, expired movements, and reports still need tables.
+- `stock_movements` — implemented by `0010_sales.sql` and extended by `0012`: one row per stock change, the single source for stock history. A sale writes one row per goods line and the server decrements `items.stok` in the same transaction (10.2.27); a receipt writes `masuk` rows and a correction or delete writes `koreksi_masuk` rows (10.2.33–10.2.39).
 - `services` is not a separate table: goods and services share `items` with the `type` column added by migration `0007` (decision 10.2.16). The pharmacy profile is implemented as `settings`.
 - No receipt numbering is generated: a nota is identified by its UUID and its receipt prints no code (10.2.25). Supplier invoice numbers are typed from the supplier's own document when invoices are built, so `settings` holds no numbering rules.
 
@@ -189,3 +190,14 @@ For each table or object store added to the application, document:
 - **Source of truth:** The schema, migration, or code location that defines it.
 
 Document indexes, views, collections, and other persisted structures as well as conventional tables when they are part of the application data model.
+
+## `purchase_invoices` — implemented by `0012_purchase_invoices.sql`
+
+One row per supplier invoice (faktur orderan), plus its lines in `purchase_invoice_lines`.
+
+- Purpose: record goods received from a distributor, add their stock, and keep the debt until it is paid.
+- Identity: UUID `id`. `nomor_faktur` is the supplier's own number typed by staff; it is not unique and no numbering is generated.
+- Fields: `nomor_faktur`; `distributor_id` and `distributor_nama` (the name is copied by value); `tanggal_faktur` and `jatuh_tempo` (text `YYYY-MM-DD`, due date required — 10.2.34); `status_pelunasan` (`Belum lunas`/`Lunas`); `tanggal_pelunasan`; `locked` (`1` once paid, so edits and deletes are refused); `total_tagihan` (integer rupiah); `petugas_id` and `petugas_nama`; `catatan`; `waktu` (ISO timestamp the device recorded); `deleted_at` (a tombstone keeps deleted invoices out of other devices); plus `version`, `device_updated_at`, `server_updated_at`, `created_at`, `updated_by`.
+- Lines: `id`, `invoice_id`, `item_id`, `nama` and `satuan` copied by value, `kemasan` (`satu unit`/`per box`), `jumlah_box`, `isi_per_box`, `jumlah` (units), `harga_beli`, `diskon_persen`, `ppn_persen`, `harga_modal` (REAL, the unit cost after discount and PPN), `margin_persen`, `harga_jual`, `tagihan` (integer rupiah), `batch`, `tanggal_expired`, `urutan`.
+- Saving a receipt adds each line's quantity to `items.stok`, writes one `masuk` movement per item, and copies the last line's `harga_modal` and `harga_jual` onto the item (10.2.33). An unpaid receipt may be edited, moving stock only by the difference (10.2.39), or deleted, returning the stock with `koreksi_masuk` (10.2.35). A paid receipt is locked.
+- A device keeps the confirmed invoices in its `purchaseInvoices` IndexedDB store and layers queued work on top, like every other list.

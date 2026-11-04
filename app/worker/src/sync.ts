@@ -3,6 +3,15 @@ import type { D1Database } from './env';
 import { ADAPTERS, type EntityAdapter, type SyncEntity } from './entities';
 import { apiError, isIsoTimestamp, json, nowIso, readJson } from './http';
 import type { ItemWire } from './items';
+import {
+  deletePurchaseInvoice,
+  findInvoice,
+  insertPurchaseInvoice,
+  setInvoicePayment,
+  updatePurchaseInvoice,
+  validateInvoicePayload,
+  type PaymentStatus,
+} from './purchaseInvoices';
 import { findSale, insertSale, setSaleLock, updateSale, validateSalePayload } from './sales';
 
 const CLOCK_SKEW_MS = 5 * 60 * 1000;
@@ -46,6 +55,18 @@ interface SaleOperationInput {
   payload: unknown;
 }
 
+/** A supplier invoice travels as one operation: header, lines, and stock (10.2.33). */
+interface InvoiceOperationInput {
+  kind: 'invoice';
+  operationId: string;
+  itemId: string;
+  authorId: string;
+  action: 'create' | 'update';
+  baseVersion: number;
+  deviceTime: string;
+  payload: unknown;
+}
+
 /** The account that recorded the work, read fresh when the work is processed. */
 interface OperationAuthor {
   id: string;
@@ -63,7 +84,7 @@ interface StoredOperation {
 const isEntity = (value: unknown): value is SyncEntity =>
   typeof value === 'string' && Object.prototype.hasOwnProperty.call(ADAPTERS, value);
 
-function parseOperation(raw: unknown): OperationInput | SaleOperationInput | { error: string } {
+function parseOperation(raw: unknown): OperationInput | SaleOperationInput | InvoiceOperationInput | { error: string } {
   if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return { error: 'invalid_operation' };
   const input = raw as Record<string, unknown>;
 
@@ -71,8 +92,9 @@ function parseOperation(raw: unknown): OperationInput | SaleOperationInput | { e
   if (operationId.length < 8 || operationId.length > 120) return { error: 'invalid_operation_id' };
 
   const saleEntity = input.entity === 'sale';
-  if (!saleEntity && !isEntity(input.entity)) return { error: 'unsupported_entity' };
-  const adapter = saleEntity ? null : ADAPTERS[input.entity as SyncEntity];
+  const invoiceEntity = input.entity === 'purchase_invoice';
+  if (!saleEntity && !invoiceEntity && !isEntity(input.entity)) return { error: 'unsupported_entity' };
+  const adapter = saleEntity || invoiceEntity ? null : ADAPTERS[input.entity as SyncEntity];
 
   // The pharmacy profile is a single row with a fixed id; every other record
   // carries a device-generated identifier.
@@ -98,6 +120,19 @@ function parseOperation(raw: unknown): OperationInput | SaleOperationInput | { e
   if (saleEntity) {
     return {
       kind: 'sale',
+      operationId,
+      itemId,
+      authorId,
+      action: input.action,
+      baseVersion,
+      deviceTime: input.deviceTime,
+      payload: input.payload,
+    };
+  }
+
+  if (invoiceEntity) {
+    return {
+      kind: 'invoice',
       operationId,
       itemId,
       authorId,
@@ -611,7 +646,7 @@ async function applyOperation(
       author.id,
       deviceId,
       author.id,
-      parsed.kind === 'sale' ? 'sale' : parsed.adapter.entity,
+      parsed.kind === 'sale' ? 'sale' : parsed.kind === 'invoice' ? 'purchase_invoice' : parsed.adapter.entity,
       parsed.itemId,
       parsed.action,
       parsed.deviceTime,
@@ -640,7 +675,9 @@ async function applyOperation(
   try {
     result = parsed.kind === 'sale'
       ? await applySale(db, author, staff.id, deviceId, parsed, serverTime)
-      : await decide(db, author, staff.id, deviceId, parsed, serverTime);
+      : parsed.kind === 'invoice'
+        ? await applyInvoice(db, author, staff.id, deviceId, parsed, serverTime)
+        : await decide(db, author, staff.id, deviceId, parsed, serverTime);
   } catch (error) {
     console.error('sync operation failed', error);
     result = {
@@ -804,6 +841,152 @@ async function applySaleEdit(
 
   await recordAudit(db, 'sale', author.id, deviceId, operation, 'applied', serverTime, existing, updated.sale, note('sale_edited'), updated.sale.version);
   return { ...base, status: 'applied', message: 'sale_edited', record: updated.sale, version: updated.sale.version };
+}
+
+/**
+ * Applies one supplier invoice. A create records the receipt and adds stock, an
+ * edit replaces the lines while moving stock by the difference, a payment locks
+ * or unlocks the receipt, and a delete takes the stock back (10.2.33-10.2.39).
+ */
+async function applyInvoice(
+  db: D1Database,
+  author: OperationAuthor,
+  pushedById: string,
+  deviceId: string,
+  operation: InvoiceOperationInput,
+  serverTime: string,
+): Promise<SyncResult> {
+  const base = { operationId: operation.operationId, itemId: operation.itemId };
+  const note = (value: string) => withPusher(value, author.id, pushedById);
+  const existing = await findInvoice(db, operation.itemId);
+
+  if (author.status !== 'Aktif') {
+    await recordAudit(db, 'purchase_invoice', author.id, deviceId, operation, 'rejected', serverTime, null, operation.payload, note('account_deactivated'), null);
+    return { ...base, status: 'cancelled', message: 'account_deactivated' };
+  }
+
+  if (Date.parse(operation.deviceTime) > Date.parse(serverTime) + CLOCK_SKEW_MS) {
+    await recordAudit(db, 'purchase_invoice', author.id, deviceId, operation, 'conflict', serverTime, existing, operation.payload, note('clock_skew'), null);
+    return { ...base, status: 'conflict', message: 'clock_skew', record: existing ?? undefined };
+  }
+
+  const payload = (operation.payload ?? {}) as Record<string, unknown>;
+
+  if (operation.action === 'create') {
+    if (existing) {
+      await recordAudit(db, 'purchase_invoice', author.id, deviceId, operation, 'conflict', serverTime, existing, operation.payload, note('record_exists'), existing.version);
+      return { ...base, status: 'conflict', message: 'record_exists', record: existing };
+    }
+
+    const validated = await validateInvoicePayload(db, payload);
+    if (!validated.ok) {
+      await recordAudit(db, 'purchase_invoice', author.id, deviceId, operation, 'rejected', serverTime, null, operation.payload, note(validated.message), null);
+      return { ...base, status: 'rejected', message: 'validation' };
+    }
+
+    const inserted = await insertPurchaseInvoice(db, {
+      id: operation.itemId,
+      fields: validated.fields,
+      deviceTime: operation.deviceTime,
+      serverTime,
+      staffId: author.id,
+      staffName: author.name,
+    });
+    if (!inserted.ok) {
+      await recordAudit(db, 'purchase_invoice', author.id, deviceId, operation, 'rejected', serverTime, null, operation.payload, note(inserted.message), null);
+      return { ...base, status: 'rejected', message: inserted.message };
+    }
+
+    await recordAudit(db, 'purchase_invoice', author.id, deviceId, operation, 'applied', serverTime, null, inserted.invoice, note('invoice_created'), 1);
+    return { ...base, status: 'applied', message: 'invoice_created', record: inserted.invoice, version: 1 };
+  }
+
+  if (!existing) {
+    await recordAudit(db, 'purchase_invoice', author.id, deviceId, operation, 'rejected', serverTime, null, operation.payload, note('not_found'), null);
+    return { ...base, status: 'rejected', message: 'not_found' };
+  }
+
+  if (operation.baseVersion !== existing.version) {
+    await recordAudit(db, 'purchase_invoice', author.id, deviceId, operation, 'conflict', serverTime, existing, operation.payload, note('stale_edit'), existing.version);
+    return { ...base, status: 'conflict', message: 'stale_edit', record: existing };
+  }
+
+  // A tombstone is the only record a deleted invoice leaves behind.
+  if (payload.deleted === true) {
+    const removed = await deletePurchaseInvoice(db, {
+      id: operation.itemId,
+      deviceTime: operation.deviceTime,
+      serverTime,
+      staffId: author.id,
+      version: existing.version + 1,
+    });
+    if (!removed.ok) {
+      await recordAudit(db, 'purchase_invoice', author.id, deviceId, operation, 'rejected', serverTime, existing, operation.payload, note(removed.message), existing.version);
+      return { ...base, status: 'rejected', message: removed.message, record: existing };
+    }
+
+    await recordAudit(db, 'purchase_invoice', author.id, deviceId, operation, 'applied', serverTime, existing, null, note('invoice_deleted'), existing.version + 1);
+    return { ...base, status: 'applied', message: 'invoice_deleted' };
+  }
+
+  const payment = payload.payment;
+  if (payment && typeof payment === 'object' && !Array.isArray(payment)) {
+    const request = payment as Record<string, unknown>;
+    const status: PaymentStatus | null =
+      request.status === 'Lunas' || request.status === 'Belum lunas' ? request.status : null;
+    if (!status) {
+      await recordAudit(db, 'purchase_invoice', author.id, deviceId, operation, 'rejected', serverTime, existing, operation.payload, note('validation'), existing.version);
+      return { ...base, status: 'rejected', message: 'validation', record: existing };
+    }
+
+    const paid = await setInvoicePayment(db, {
+      id: operation.itemId,
+      status,
+      tanggalPelunasan: typeof request.tanggalPelunasan === 'string' ? request.tanggalPelunasan : null,
+      deviceTime: operation.deviceTime,
+      serverTime,
+      staffId: author.id,
+      version: existing.version + 1,
+      isAdmin: author.role === 'admin',
+    });
+    if (!paid.ok) {
+      await recordAudit(db, 'purchase_invoice', author.id, deviceId, operation, 'rejected', serverTime, existing, operation.payload, note(paid.message), existing.version);
+      return { ...base, status: 'rejected', message: paid.message, record: existing };
+    }
+
+    const message = status === 'Lunas' ? 'invoice_paid' : 'invoice_unpaid';
+    await recordAudit(db, 'purchase_invoice', author.id, deviceId, operation, 'applied', serverTime, existing, paid.invoice, note(message), paid.invoice.version);
+    return { ...base, status: 'applied', message, record: paid.invoice, version: paid.invoice.version };
+  }
+
+  if (!Array.isArray(payload.items)) {
+    await recordAudit(db, 'purchase_invoice', author.id, deviceId, operation, 'rejected', serverTime, existing, operation.payload, note('validation'), existing.version);
+    return { ...base, status: 'rejected', message: 'validation', record: existing };
+  }
+
+  const validated = await validateInvoicePayload(db, payload);
+  if (!validated.ok) {
+    await recordAudit(db, 'purchase_invoice', author.id, deviceId, operation, 'rejected', serverTime, existing, operation.payload, note(validated.message), existing.version);
+    return { ...base, status: 'rejected', message: 'validation', record: existing };
+  }
+
+  const updated = await updatePurchaseInvoice(db, {
+    id: operation.itemId,
+    fields: validated.fields,
+    deviceTime: operation.deviceTime,
+    serverTime,
+    staffId: author.id,
+    staffName: author.name,
+    version: existing.version + 1,
+    isAdmin: author.role === 'admin',
+  });
+  if (!updated.ok) {
+    await recordAudit(db, 'purchase_invoice', author.id, deviceId, operation, 'rejected', serverTime, existing, operation.payload, note(updated.message), existing.version);
+    return { ...base, status: 'rejected', message: updated.message, record: existing };
+  }
+
+  await recordAudit(db, 'purchase_invoice', author.id, deviceId, operation, 'applied', serverTime, existing, updated.invoice, note('invoice_edited'), updated.invoice.version);
+  return { ...base, status: 'applied', message: 'invoice_edited', record: updated.invoice, version: updated.invoice.version };
 }
 
 export async function handlePush(request: Request, db: D1Database, staff: SessionStaff): Promise<Response> {

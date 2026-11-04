@@ -96,7 +96,7 @@ export interface VisiblePharmacy extends PharmacyProfile {
   pendingOperationId?: string;
 }
 
-export type SyncEntity = 'item' | ReferenceEntity | 'settings' | 'sale';
+export type SyncEntity = 'item' | ReferenceEntity | 'settings' | 'sale' | 'purchase_invoice';
 
 /** `cancelled` means the center refused the work for good; it is never resent. */
 export type OperationStatus = 'pending' | 'held' | 'cancelled';
@@ -120,7 +120,12 @@ export type OutboxOperation =
   | (OutboxBase & { entity: ReferenceEntity; payload: ReferencePayload })
   | (OutboxBase & { entity: 'settings'; payload: PharmacyPayload })
   // A nota travels as a single operation: its header and every line together.
-  | (OutboxBase & { entity: 'sale'; payload: SalePayload | SaleLockPayload });
+  | (OutboxBase & { entity: 'sale'; payload: SalePayload | SaleLockPayload })
+  // A supplier invoice carries its header, lines, and payment in one operation.
+  | (OutboxBase & {
+      entity: 'purchase_invoice';
+      payload: PurchaseInvoicePayload | InvoicePaymentPayload | InvoiceDeletePayload;
+    });
 
 export type SyncStatus = 'applied' | 'duplicate' | 'conflict' | 'rejected' | 'cancelled';
 
@@ -211,6 +216,98 @@ export interface VisibleSale extends Sale {
 /** A lock change carries no lines, so it never rewrites the nota itself. */
 export interface SaleLockPayload {
   locked: boolean;
+}
+
+export type PaymentStatus = 'Belum lunas' | 'Lunas';
+export type PackageType = 'satu unit' | 'per box';
+
+/** An invoice line as stored on the device after the server confirmed it. */
+export interface PurchaseInvoiceLine {
+  id: string;
+  itemId: string;
+  nama: string;
+  satuan: string;
+  kemasan: PackageType;
+  jumlahBox: number;
+  isiPerBox: number;
+  jumlah: number;
+  hargaBeli: number;
+  diskonPersen: number;
+  ppnPersen: number;
+  hargaModal: number;
+  marginPersen: number;
+  hargaJual: number;
+  tagihan: number;
+  batch: string;
+  tanggalExpired: string | null;
+  urutan: number;
+}
+
+/** `nama` and `satuan` let an offline draft show the goods before it is sent. */
+export interface PurchaseInvoicePayloadLine {
+  itemId: string;
+  nama?: string;
+  satuan?: string;
+  kemasan: PackageType;
+  jumlahBox: number;
+  isiPerBox: number;
+  jumlah: number;
+  hargaBeli: number;
+  diskonPersen: number;
+  ppnPersen: number;
+  marginPersen: number;
+  hargaJual: number;
+  batch: string;
+  tanggalExpired: string | null;
+}
+
+export interface PurchaseInvoicePayload {
+  nomorFaktur: string;
+  distributorId: string;
+  tanggalFaktur: string;
+  /** Required: every invoice has a due date (10.2.34). */
+  jatuhTempo: string;
+  statusPelunasan: PaymentStatus;
+  tanggalPelunasan: string | null;
+  catatan: string;
+  items: PurchaseInvoicePayloadLine[];
+}
+
+export interface PurchaseInvoice {
+  id: string;
+  nomorFaktur: string;
+  distributorId: string;
+  distributorNama: string;
+  tanggalFaktur: string;
+  jatuhTempo: string;
+  statusPelunasan: PaymentStatus;
+  tanggalPelunasan: string | null;
+  locked: boolean;
+  totalTagihan: number;
+  petugasId: string;
+  petugasNama: string;
+  catatan: string;
+  waktu: string;
+  deletedAt: string | null;
+  version: number;
+  updatedAt: string;
+  serverUpdatedAt: string;
+  lines: PurchaseInvoiceLine[];
+}
+
+/** A confirmed invoice with an unsynchronized local change layered on top. */
+export interface VisiblePurchaseInvoice extends PurchaseInvoice {
+  pending?: boolean;
+  pendingOperationId?: string;
+  pendingAction?: 'create' | 'update';
+}
+
+export interface InvoicePaymentPayload {
+  payment: { status: PaymentStatus; tanggalPelunasan: string | null };
+}
+
+export interface InvoiceDeletePayload {
+  deleted: true;
 }
 
 export interface LocalCredential {

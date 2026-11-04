@@ -120,8 +120,7 @@ The initial production database should include the following core entities.
 
 ### Batches and expiry
 
-- `batches`
-- fields: id, item_id, batch_code, expiry_date, quantity, supplier_id, created_at
+- No `batches` table (10.2.36). Batch code and expiry date are columns on `purchase_invoice_lines`, and `items.stok` stays one number per item, so remaining quantity per batch is not tracked.
 
 ### Suppliers
 
@@ -141,15 +140,15 @@ Implemented by [0010_sales.sql](app/worker/migrations/0010_sales.sql), including
 
 ### Purchase invoice and invoice lines
 
-- `purchase_invoices`
-- `purchase_invoice_lines`
-- capture supplier invoices and their quantities
+- `purchase_invoices` and `purchase_invoice_lines`, implemented in [0012_purchase_invoices.sql](app/worker/migrations/0012_purchase_invoices.sql); columns are documented in [TABLE.md](TABLE.md).
+- A receipt travels as one sync operation and adds stock in the same transaction, while copying its cost and selling prices onto `items` (10.2.33). The due date is required (10.2.34); an unpaid receipt may be corrected so stock moves only by the difference (10.2.39) or deleted so the stock returns (10.2.35); a paid receipt is locked.
 
 ### Stock movements
 
 - `stock_movements`
 - one row per stock change event; this is the primary audit trail for stock history
 - implemented by [0010_sales.sql](app/worker/migrations/0010_sales.sql) for sales: one row per goods line, written in the same transaction as the stock decrement (10.2.27), with `koreksi` rows for a corrected nota (10.2.30)
+- extended by `0012_purchase_invoices.sql`: `purchase_invoice_id` plus `masuk` rows for a receipt and `koreksi_masuk` rows for a correction, edit difference, or deletion
 
 ### Settings
 

@@ -1,7 +1,11 @@
 import { LOCKED_PAYMENT_METHOD_ID } from '../types';
+import { invoiceFromPayload } from './invoiceMath';
 import { saleFromPayload } from './saleMath';
 import { api } from './api';
 import {
+  invoiceDelete,
+  invoicesAll,
+  invoicesUpsertMany,
   itemsAll,
   itemsReplaceAll,
   itemsUpsertMany,
@@ -18,13 +22,18 @@ import {
   type StoreName,
 } from './idb';
 import type {
+  InvoiceDeletePayload,
+  InvoicePaymentPayload,
   Item,
   ItemPayload,
   OutboxOperation,
+  PaymentStatus,
   PharmacyPayload,
   PharmacyProfile,
   Reference,
   ReferenceEntity,
+  PurchaseInvoice,
+  PurchaseInvoicePayload,
   ReferencePayload,
   Sale,
   SaleLockPayload,
@@ -32,6 +41,7 @@ import type {
   SyncResult,
   VisibleItem,
   VisiblePharmacy,
+  VisiblePurchaseInvoice,
   VisibleReference,
   VisibleSale,
 } from '../types';
@@ -44,6 +54,10 @@ export const PHARMACY_KEY = 'pharmacyProfile';
 export const SALES_CURSOR_KEY = 'salesCursor';
 export const SALES_FLOOR_KEY = 'salesFloor';
 export const SALES_BACKFILL_KEY = 'salesBackfilled';
+/** The same window, kept separately for supplier invoices (10.2.33). */
+export const INVOICES_CURSOR_KEY = 'invoicesCursor';
+export const INVOICES_FLOOR_KEY = 'invoicesFloor';
+export const INVOICES_BACKFILL_KEY = 'invoicesBackfilled';
 
 /** Which on-device store holds the confirmed rows of each reference list. */
 export const REFERENCE_STORES: Record<ReferenceEntity, StoreName> = {
@@ -387,6 +401,201 @@ export async function loadVisibleSales(): Promise<{ sales: VisibleSale[]; outbox
   };
 }
 
+function isInvoiceEdit(operation: OutboxOperation): boolean {
+  return operation.entity === 'purchase_invoice' && Array.isArray((operation.payload as PurchaseInvoicePayload).items);
+}
+
+function isInvoicePayment(operation: OutboxOperation): boolean {
+  return operation.entity === 'purchase_invoice' && 'payment' in (operation.payload as object);
+}
+
+function isInvoiceDelete(operation: OutboxOperation): boolean {
+  return operation.entity === 'purchase_invoice' && (operation.payload as InvoiceDeletePayload).deleted === true;
+}
+
+export interface SaveInvoiceInput {
+  payload: PurchaseInvoicePayload;
+  invoiceId?: string;
+  confirmedVersion: number;
+  authorId: string;
+}
+
+/** One queued operation per invoice, so an offline edit collapses into itself. */
+export async function queueInvoiceSave(input: SaveInvoiceInput): Promise<OutboxOperation> {
+  const invoiceId = input.invoiceId ?? crypto.randomUUID();
+  const existing = (await outboxAll()).find(
+    (operation) =>
+      operation.entity === 'purchase_invoice' && operation.itemId === invoiceId && operation.status !== 'cancelled',
+  );
+
+  const operation: OutboxOperation = {
+    operationId: existing?.operationId ?? crypto.randomUUID(),
+    entity: 'purchase_invoice',
+    action: input.invoiceId ? 'update' : 'create',
+    itemId: invoiceId,
+    authorId: existing?.authorId ?? input.authorId,
+    baseVersion: existing?.baseVersion ?? input.confirmedVersion,
+    deviceTime: new Date().toISOString(),
+    payload: input.payload,
+    queuedAt: existing?.queuedAt ?? new Date().toISOString(),
+    status: 'pending',
+  };
+
+  await outboxPut(operation);
+  return operation;
+}
+
+/** A payment is queued even when the invoice itself was recorded offline. */
+export async function queueInvoicePayment(input: {
+  invoiceId: string;
+  status: PaymentStatus;
+  tanggalPelunasan: string | null;
+  baseVersion: number;
+  authorId: string;
+}): Promise<OutboxOperation> {
+  const existing = (await outboxAll()).find(
+    (operation) =>
+      operation.entity === 'purchase_invoice' && operation.itemId === input.invoiceId && operation.status !== 'cancelled',
+  );
+
+  // A receipt that never reached the centre is still a draft here: the payment
+  // belongs in that same operation, not in a second one.
+  if (existing && existing.action === 'create' && isInvoiceEdit(existing)) {
+    const draft = existing.payload as PurchaseInvoicePayload;
+    const merged: OutboxOperation = {
+      operationId: existing.operationId,
+      entity: 'purchase_invoice',
+      action: 'create',
+      itemId: existing.itemId,
+      authorId: existing.authorId,
+      baseVersion: existing.baseVersion,
+      deviceTime: new Date().toISOString(),
+      payload: {
+        ...draft,
+        statusPelunasan: input.status,
+        tanggalPelunasan: input.status === 'Lunas' ? input.tanggalPelunasan : null,
+      },
+      queuedAt: existing.queuedAt,
+      status: 'pending',
+    };
+    await outboxPut(merged);
+    return merged;
+  }
+
+  const operation: OutboxOperation = {
+    operationId: existing?.operationId ?? crypto.randomUUID(),
+    entity: 'purchase_invoice',
+    action: 'update',
+    itemId: input.invoiceId,
+    authorId: existing?.authorId ?? input.authorId,
+    baseVersion: existing?.baseVersion ?? input.baseVersion,
+    deviceTime: new Date().toISOString(),
+    payload: { payment: { status: input.status, tanggalPelunasan: input.tanggalPelunasan } },
+    queuedAt: existing?.queuedAt ?? new Date().toISOString(),
+    status: 'pending',
+  };
+
+  await outboxPut(operation);
+  return operation;
+}
+
+/** Deleting an unsent draft simply drops it: no stock ever left the shelf. */
+export async function queueInvoiceDelete(input: {
+  invoiceId: string;
+  baseVersion: number;
+  authorId: string;
+}): Promise<boolean> {
+  const existing = (await outboxAll()).find(
+    (operation) =>
+      operation.entity === 'purchase_invoice' && operation.itemId === input.invoiceId && operation.status !== 'cancelled',
+  );
+
+  if (existing && existing.action === 'create' && isInvoiceEdit(existing)) {
+    await outboxDelete(existing.operationId);
+    return false;
+  }
+
+  const operation: OutboxOperation = {
+    operationId: existing?.operationId ?? crypto.randomUUID(),
+    entity: 'purchase_invoice',
+    action: 'update',
+    itemId: input.invoiceId,
+    authorId: existing?.authorId ?? input.authorId,
+    baseVersion: existing?.baseVersion ?? input.baseVersion,
+    deviceTime: new Date().toISOString(),
+    payload: { deleted: true },
+    queuedAt: existing?.queuedAt ?? new Date().toISOString(),
+    status: 'pending',
+  };
+
+  await outboxPut(operation);
+  return true;
+}
+
+/** Newest invoice first; a deleted invoice disappears from the list. */
+export async function loadVisiblePurchaseInvoices(): Promise<{
+  invoices: VisiblePurchaseInvoice[];
+  outbox: OutboxOperation[];
+}> {
+  const [confirmed, outbox] = await Promise.all([invoicesAll(), outboxAll()]);
+  const byId = new Map<string, VisiblePurchaseInvoice>(confirmed.map((invoice) => [invoice.id, { ...invoice }]));
+
+  for (const operation of outbox) {
+    if (operation.entity !== 'purchase_invoice' || operation.status === 'cancelled') continue;
+    if (isInvoiceDelete(operation)) {
+      byId.delete(operation.itemId);
+      continue;
+    }
+
+    const base = byId.get(operation.itemId);
+    if (isInvoiceEdit(operation)) {
+      byId.set(operation.itemId, {
+        ...invoiceFromPayload(operation.itemId, operation.payload as PurchaseInvoicePayload, base, operation.deviceTime),
+        pending: true,
+        pendingOperationId: operation.operationId,
+        pendingAction: base ? 'update' : 'create',
+      });
+      continue;
+    }
+
+    if (isInvoicePayment(operation) && base) {
+      const payment = (operation.payload as InvoicePaymentPayload).payment;
+      byId.set(operation.itemId, {
+        ...base,
+        statusPelunasan: payment.status,
+        tanggalPelunasan: payment.status === 'Lunas' ? payment.tanggalPelunasan : null,
+        locked: payment.status === 'Lunas',
+        updatedAt: operation.deviceTime,
+        pending: true,
+        pendingOperationId: operation.operationId,
+        pendingAction: 'update',
+      });
+    }
+  }
+
+  return {
+    invoices: [...byId.values()].sort((left, right) =>
+      `${right.tanggalFaktur}${right.waktu}${right.id}`.localeCompare(`${left.tanggalFaktur}${left.waktu}${left.id}`),
+    ),
+    outbox,
+  };
+}
+
+async function rememberInvoicePages(rows: PurchaseInvoice[]): Promise<void> {
+  if (rows.length === 0) return;
+  const all = await invoicesAll();
+  if (all.length === 0) return;
+
+  let newest = all[0].serverUpdatedAt;
+  let oldest = all[0].serverUpdatedAt;
+  for (const invoice of all) {
+    if (invoice.serverUpdatedAt > newest) newest = invoice.serverUpdatedAt;
+    if (invoice.serverUpdatedAt < oldest) oldest = invoice.serverUpdatedAt;
+  }
+  await metaSet(INVOICES_CURSOR_KEY, newest);
+  await metaSet(INVOICES_FLOOR_KEY, oldest);
+}
+
 /** Remembers the window of notas this device keeps, so pages never overlap. */
 async function rememberSalesPages(rows: Sale[]): Promise<void> {
   if (rows.length === 0) return;
@@ -469,17 +678,22 @@ export async function syncNow(authorId: string): Promise<SyncSummary> {
     cursor = response.data?.cursor ?? cursor;
   }
 
-  const [salesCursor, salesFloor, backfilled] = await Promise.all([
+  const [salesCursor, salesFloor, backfilled, invoicesCursor, invoicesFloor, invoicesBackfilled] = await Promise.all([
     metaGet<string>(SALES_CURSOR_KEY),
     metaGet<string>(SALES_FLOOR_KEY),
     metaGet<boolean>(SALES_BACKFILL_KEY),
+    metaGet<string>(INVOICES_CURSOR_KEY),
+    metaGet<string>(INVOICES_FLOOR_KEY),
+    metaGet<boolean>(INVOICES_BACKFILL_KEY),
   ]);
-  // New notas arrive from the cursor; a fresh device asks for the newest page
-  // first so today's notas show immediately.
-  const snapshot = await api.snapshot(
-    salesCursor || undefined,
-    salesCursor || backfilled ? undefined : salesFloor ?? undefined,
-  );
+  // New work arrives from the cursor; a fresh device asks for the newest page
+  // first so today's rows show immediately.
+  const snapshot = await api.snapshot({
+    salesSince: salesCursor || undefined,
+    salesBefore: salesCursor || backfilled ? undefined : salesFloor ?? undefined,
+    invoicesSince: invoicesCursor || undefined,
+    invoicesBefore: invoicesCursor || invoicesBackfilled ? undefined : invoicesFloor ?? undefined,
+  });
   if (!snapshot.ok) {
     summary.ok = false;
     summary.online = snapshot.status !== 0;
@@ -501,15 +715,36 @@ export async function syncNow(authorId: string): Promise<SyncSummary> {
   if (fresh.length > 0) await salesUpsertMany(fresh);
   await rememberSalesPages(fresh);
 
+  // A tombstone is how another device learns an invoice was deleted.
+  const freshInvoices = data?.invoices ?? [];
+  const liveInvoices: PurchaseInvoice[] = [];
+  for (const invoice of freshInvoices) {
+    if (invoice.deletedAt) await invoiceDelete(invoice.id);
+    else liveInvoices.push(invoice);
+  }
+  if (liveInvoices.length > 0) await invoicesUpsertMany(liveInvoices);
+  await rememberInvoicePages(freshInvoices);
+
   // Older notas arrive one page per sync, and only while nothing newer came in,
   // so a busy counter is never slowed down by history (10.2.28).
   if (fresh.length === 0 && !backfilled && salesFloor) {
-    const older = await api.snapshot(undefined, salesFloor);
+    const older = await api.snapshot({ salesBefore: salesFloor });
     if (older.ok) {
       const rows = older.data?.sales ?? [];
       if (rows.length > 0) await salesUpsertMany(rows);
       else await metaSet(SALES_BACKFILL_KEY, true);
       await rememberSalesPages(rows);
+    }
+  }
+
+  // Older invoices arrive one page per sync, only while nothing newer came in.
+  if (freshInvoices.length === 0 && !invoicesBackfilled && invoicesFloor) {
+    const older = await api.snapshot({ invoicesBefore: invoicesFloor });
+    if (older.ok) {
+      const rows = (older.data?.invoices ?? []).filter((invoice) => !invoice.deletedAt);
+      if (rows.length > 0) await invoicesUpsertMany(rows);
+      else await metaSet(INVOICES_BACKFILL_KEY, true);
+      await rememberInvoicePages(rows);
     }
   }
 
@@ -526,10 +761,20 @@ async function applyPushResult(result: SyncResult, batch: OutboxOperation[]): Pr
 
   if (result.status === 'applied' || result.status === 'duplicate') {
     if (result.item) await itemsUpsertMany([result.item]);
-    const record = result.record as Sale | undefined;
-    if (record && Array.isArray(record.lines)) {
-      await salesUpsertMany([record]);
-      await rememberSalesPages([record]);
+    if (result.message === 'invoice_deleted') {
+      await invoiceDelete(result.itemId);
+      await outboxDelete(result.operationId);
+      return;
+    }
+    const record = result.record as Record<string, unknown> | undefined;
+    if (record && typeof record.nomorFaktur === 'string') {
+      const invoice = record as unknown as PurchaseInvoice;
+      await invoicesUpsertMany([invoice]);
+      await rememberInvoicePages([invoice]);
+    } else if (record && Array.isArray(record.lines)) {
+      const sale = record as unknown as Sale;
+      await salesUpsertMany([sale]);
+      await rememberSalesPages([sale]);
     }
     await outboxDelete(result.operationId);
     return;

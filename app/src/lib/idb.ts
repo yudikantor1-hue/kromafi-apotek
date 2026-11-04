@@ -1,7 +1,7 @@
-import type { Item, LocalCredential, OutboxOperation, Sale } from '../types';
+import type { Item, LocalCredential, OutboxOperation, PurchaseInvoice, Sale } from '../types';
 
 const DB_NAME = 'kromafi-apotek';
-const DB_VERSION = 4;
+const DB_VERSION = 5;
 
 export const STORE = {
   meta: 'meta',
@@ -13,6 +13,7 @@ export const STORE = {
   doctors: 'doctors',
   suppliers: 'suppliers',
   sales: 'sales',
+  purchaseInvoices: 'purchaseInvoices',
 } as const;
 
 export type StoreName = (typeof STORE)[keyof typeof STORE];
@@ -25,6 +26,7 @@ const RECORD_STORES: StoreName[] = [
   STORE.doctors,
   STORE.suppliers,
   STORE.sales,
+  STORE.purchaseInvoices,
 ];
 
 let dbPromise: Promise<IDBDatabase> | null = null;
@@ -164,6 +166,18 @@ export async function salesAll(): Promise<Sale[]> {
 
 export async function salesUpsertMany(sales: Sale[]): Promise<void> {
   await recordsUpsertMany(STORE.sales, sales);
+}
+
+export async function invoicesAll(): Promise<PurchaseInvoice[]> {
+  return recordsAll<PurchaseInvoice>(STORE.purchaseInvoices);
+}
+
+export async function invoicesUpsertMany(invoices: PurchaseInvoice[]): Promise<void> {
+  await recordsUpsertMany(STORE.purchaseInvoices, invoices);
+}
+
+export async function invoiceDelete(id: string): Promise<void> {
+  await runTransaction<void>(STORE.purchaseInvoices, 'readwrite', (store) => store.delete(id));
 }
 
 export async function outboxAll(): Promise<OutboxOperation[]> {
