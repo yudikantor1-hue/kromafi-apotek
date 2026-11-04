@@ -74,7 +74,7 @@ Our communication and delivery workflow is:
 ## Using `PLAN.md`
 
 - Use `PLAN.md` as the general lifecycle guide for turning the client's vision into a usable custom application. Adapt its steps to the approved scope; it is a roadmap, not a substitute for client approval or a detailed task list.
-- Keep current-state claims factual: `UI/` is the client-approved prototype, and the production application in `app/` exists, is tested, and is deployed to the client's own Cloudflare account as a trial, but it currently covers eight of the 18 menus (Barang, Jasa, Petugas, Lemari, Metode pembayaran, Dokter, Distributor, and Profil apotek) on the shared access control, offline outbox, sync, and encrypted export/import engine. Describe every other frontend, API, database, and workflow area as planned until it is implemented and verified.
+- Keep current-state claims factual: `UI/` is the client-approved prototype, and the production application in `app/` exists, is tested, and is deployed to the client's own Cloudflare account as a trial, but it currently covers ten of the 18 menus (Penjualan, Faktur orderan, Barang, Jasa, Petugas, Lemari, Metode pembayaran, Dokter, Distributor, and Profil apotek) on the shared access control, offline outbox, sync, and encrypted export/import engine. Describe every other frontend, API, database, and workflow area as planned until it is implemented and verified.
 - Work through the plan in sequence where practical. Record actionable implementation tasks separately, and do not begin execution before the client approves the expected outcomes and todo list.
 - Report project progress using only these percentage values: **0%, 25%, 50%, 75%, and 100%**.
 - Use the scale consistently:

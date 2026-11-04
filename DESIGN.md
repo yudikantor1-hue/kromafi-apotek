@@ -4,7 +4,7 @@
 
 The Kromafi Apotek system is planned as a maintainable offline-capable web application for one pharmacy, using Cloudflare Pages, Workers, and D1. D1 is the shared source of truth when connected; each device uses a local cache and pending-operation queue while offline.
 
-The UI prototype in `UI/` is the client-approved baseline for design direction and workflow validation. The production application lives in `app/` and is deployed as a trial on Cloudflare; nine menus are implemented (Penjualan, Barang, Jasa, Petugas, Lemari, Metode pembayaran, Dokter, Distributor, and Profil apotek) on one offline engine: staff sign-in, staff administration, items, notas with their stock effects, the offline outbox, synchronization, and export/import.
+The UI prototype in `UI/` is the client-approved baseline for design direction and workflow validation. The production application lives in `app/` and is deployed as a trial on Cloudflare; ten menus are implemented (Penjualan, Faktur orderan, Barang, Jasa, Petugas, Lemari, Metode pembayaran, Dokter, Distributor, and Profil apotek) on one offline engine: staff sign-in, staff administration, items, notas and supplier invoices with their stock effects, the offline outbox, synchronization, and export/import.
 
 This document describes the target design for the whole application. Where it describes purchasing, expiry, or reporting, that is planned design, not verified implementation; sales are implemented by `0010_sales.sql`; the implemented parts are marked as such in [PLAN.md](PLAN.md) phase 3 and phase 11.
 
@@ -268,7 +268,7 @@ The Worker and D1 are the final authority for business validation and confirmed 
 
 ## 11. Prototype-to-product transition
 
-The prototype in `UI/` is the client-approved baseline for interface direction and workflow logic. The production app in `app/` and its database-backed API do not exist yet and must be built to follow that baseline.
+The prototype in `UI/` is the client-approved baseline for interface direction and workflow logic. The production app in `app/` and its database-backed API now exist and are deployed as a trial; they follow that baseline, starting with items and reference lists, then Penjualan and Faktur orderan.
 
 This means:
 

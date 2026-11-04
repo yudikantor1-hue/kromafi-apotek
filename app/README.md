@@ -1,13 +1,13 @@
 # Kromafi Apotek — production application
 
-This directory holds the production application. It implements nine of the client-approved
-menus — **Penjualan, Barang, Jasa, Petugas, Lemari, Metode pembayaran, Dokter, Distributor, and Profil
+This directory holds the production application. It implements ten of the client-approved
+menus — **Penjualan, Faktur orderan, Barang, Jasa, Petugas, Lemari, Metode pembayaran, Dokter, Distributor, and Profil
 apotek** — on one offline engine: staff sign-in, staff administration, list/search/create/edit/
 activate, offline pending work, idempotent synchronization, conflict history, and encrypted
 export/import.
 
 It **is deployed as a trial** to the client's own Cloudflare account at
-https://kromafi-apotek.kromafi.workers.dev, with D1 `kromafi-apotek` and migrations `0001`–`0010`
+https://kromafi-apotek.kromafi.workers.dev, with D1 `kromafi-apotek` and migrations `0001`–`0012`
 applied. It is not a production launch yet: the custom domain, a second admin, and data onboarding
 are still open (P1 in [../PLAN.md](../PLAN.md)).
 
@@ -25,7 +25,7 @@ app/
 │  └─ icon.svg
 ├─ src/                       React PWA
 │  ├─ App.tsx                 Session, setup, sync, and Barang actions
-│  ├─ components/             Login, Setup, Shell, Penjualan, Barang, Jasa, reference lists, Profil apotek, Petugas, Export modal, icons
+│  ├─ components/             Login, Setup, Shell, Penjualan, Faktur orderan, Barang, Jasa, reference lists, Profil apotek, Petugas, Export modal, icons
 │  ├─ lib/
 │  │  ├─ api.ts               Typed API client
 │  │  ├─ idb.ts               IndexedDB: meta, items, outbox, credentials
@@ -34,9 +34,9 @@ app/
 │  │  └─ exportImport.ts      Encrypted, versioned Barang package
 │  └─ styles.css              Brand stylesheet (no Tailwind CDN)
 ├─ worker/
-│  ├─ migrations/              D1 schema, 0001–0010, applied in order
+│  ├─ migrations/              D1 schema, 0001–0012, applied in order
 │  ├─ seed/dev.sql              Local development accounts only
-│  └─ src/                      Worker API: auth, permissions, items, sync, staff, audit
+│  └─ src/                      Worker API: auth, permissions, items, invoices, sales, sync, staff, audit
 ├─ scripts/dev-api.mjs          Local API fallback (see below)
 ├─ tests/                       Worker + offline logic tests (Vitest)
 └─ wrangler.jsonc               Worker/D1/Pages configuration
@@ -102,7 +102,7 @@ where `workerd` cannot run:
 ## Checks
 
 ```bash
-npm test        # Worker API + offline logic (76 tests)
+npm test        # Worker API + offline logic (81 tests)
 npm run typecheck
 npm run build   # production PWA build into dist/
 ```
@@ -219,8 +219,8 @@ The schedule, retention period, and who verifies a restore are still undecided (
 
 - Username + password sign-in, PBKDF2-SHA-256 (**100,000 iterations** — the maximum `workerd`
   accepts; anything higher fails on the deployed runtime with
-  `NotSupportedError: Pbkdf2 failed: iteration counts above 100000 are not supported`), 12-hour
-  session cookie (HttpOnly,
+  `NotSupportedError: Pbkdf2 failed: iteration counts above 100000 are not supported`), a session
+  cookie with no time limit (HttpOnly,
   SameSite=Lax, `Secure` on HTTPS).
 - Five failed attempts in 15 minutes lock that username for 15 minutes; successful sign-in clears it.
 - Role matrix enforced on the server: any active staff may read and write Barang and see the staff
@@ -263,6 +263,13 @@ The schedule, retention period, and who verifies a restore are still undecided (
 - A saved nota can be corrected while it is unlocked: its lines are replaced and stock moves only by the difference, recorded as `sale` when units leave and `koreksi` when they come back (10.2.30). Any staff member locks a nota; only an admin unlocks it.
 - History arrives by cursor (`server_updated_at`): a device asks for notas newer than its cursor, and a fresh device receives the newest page first, then one older page per sync until it reaches the start (10.2.28).
 - The screen follows the approved prototype: a date and payment-method filter, a sticky total-omzet bar, a nota list of amount plus item names with Load more, a detail view whose lines open their own panel, and a two-step form (nota, then one item at a time). Deleting a saved nota is not built yet (10.2.31).
+
+**Faktur orderan (supplier invoices)**
+
+- Saving an invoice is one operation: the header, its lines, the stock receipts, and the catalogue price updates commit in one D1 transaction (10.2.33), so a half-written receipt cannot exist. Each line adds its units to `items.stok` and writes one `masuk` movement; the item's `harga_modal` and `harga_jual` take the last line's prices.
+- A due date is required (10.2.34), and the same item may appear on several lines with its own batch and expiry (10.2.36, 10.2.38). Stock stays one number per item; batch and expiry live on the line.
+- An unpaid invoice can be edited, and stock moves only by the difference (10.2.39), or deleted, which returns the stock with `koreksi_masuk` rows (10.2.35). Paying it locks it; only an admin can cancel the payment.
+- The screen follows the approved prototype: a two-field filter card (month and distributor), three-line invoice rows with a status pill, a detail modal with icon actions and the green *Lunas* button, an invoice form whose goods list sits above the fields, a separate goods modal with *harga modal lama*/*harga jual lama* hints and read-only totals, and a delete confirmation dialog. Money keeps the prototype's decimals (`Rp 499,5`), and the suggested selling price rounds the margin up.
 
 **Sessions and screen conventions**
 
@@ -325,7 +332,7 @@ The schedule, retention period, and who verifies a restore are still undecided (
   recovery codes. The custom domain and the second admin are still open (P1).
 - The first admin comes from `npm run staff:bootstrap -- --remote --username admin`, not from the
   Petugas screen. Every later account is created normally from the Petugas screen.
-- Nine menus are implemented (Penjualan, Barang, Jasa, Petugas, Lemari, Metode pembayaran, Dokter, Distributor, Profil apotek); the remaining prototype menus are listed but disabled.
+- Ten menus are implemented (Penjualan, Faktur orderan, Barang, Jasa, Petugas, Lemari, Metode pembayaran, Dokter, Distributor, Profil apotek); the remaining eight prototype menus are listed but disabled.
 - Password recovery does not use email (P5 was resolved in favour of one-time recovery codes). A
   staff member who has no codes left needs an admin to reset the password from the Petugas screen.
 - If the only admin loses the password and has no codes left, the break-glass path is

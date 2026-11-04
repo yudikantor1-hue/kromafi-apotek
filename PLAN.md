@@ -40,7 +40,7 @@ Goal: confirm what the first release must do and what is intentionally outside s
 
 ### 1.2 Remaining definition work
 
-- **1.2.1** Define the minimum usable workflows for the first release. — **25%** (the Barang slice is defined and delivered; eight of the 18 menus are implemented and the remaining 10 are not yet broken into release-size workflows)
+- **1.2.1** Define the minimum usable workflows for the first release. — **25%** (the Barang slice is defined and delivered; ten of the 18 menus are implemented and the remaining 8 are not yet broken into release-size workflows)
 - **1.2.2** Define the release exit criteria and acceptance checklist. — **25%** (phase 13 lists the readiness definition; the per-menu acceptance checklist is not written yet)
 
 ### 1.3 Exit gate
@@ -235,7 +235,7 @@ Goal: ensure the app remains operational and recoverable in real-world condition
 
 ### 7.1 Offline storage
 
-- **7.1.1** Cache the app shell and required reference data; store all approved offline workflows and a durable outbox in per-device IndexedDB. — **50%** (service-worker shell cache and a durable outbox are verified; Barang, the five reference screens, and Penjualan work offline (a nota is saved to the outbox and printed before it syncs), while purchasing and inventory workflows do not exist yet)
+- **7.1.1** Cache the app shell and required reference data; store all approved offline workflows and a durable outbox in per-device IndexedDB. — **50%** (service-worker shell cache and a durable outbox are verified; Barang, the five reference screens, Penjualan, and Faktur orderan work offline (a nota or an invoice is saved to the outbox before it syncs), while stocktakes, expired, and reports do not exist yet)
 
 ### 7.2 Visible sync states
 
@@ -605,25 +605,25 @@ These are not blockers for an unrelated first slice. Resolve each before impleme
   - Why: the line form shows *harga modal lama* and *harga jual lama* beside the new prices, which suggests the new prices replace them, but the prototype never writes to the Barang store; production must decide whether receiving goods changes master data.
   - Owner: client. State: **Answered** (4 November 2026).
   - Recorded answer: **yes, both prices follow the receipt.** Saving an invoice writes each line's `harga_modal` and `harga_jual` into `items` for that item in the same transaction as the stock increase, so the catalogue always shows the prices of the most recent receipt; when an item appears on several lines, the last line wins. The item keeps its normal versioning and the change is attributed to the staff member who saved the invoice, so other devices receive the new prices through the snapshot.
-  - Not implemented yet: the Faktur orderan tables are planned; the catalogue update ships with that migration.
+  - Implemented in `worker/src/purchaseInvoices.ts` with migration `0012_purchase_invoices.sql`: the receipt copies each line's `harga_modal` and `harga_jual` onto the item in the same transaction (12.1.14).
 
 - **10.2.34 — Is the due date required on a supplier invoice?**
   - Why: Tagihan selects invoices by the month of `jatuh_tempo`, so an invoice without a due date never appears there.
   - Owner: client. State: **Answered** (4 November 2026).
   - Recorded answer: **the due date is required.** `purchase_invoices.jatuh_tempo` is `NOT NULL`, the server rejects an invoice without it, and an invoice can never fall outside the monthly Tagihan list. The form marks the field with a required marker instead of treating it as optional.
-  - Not implemented yet: the Faktur orderan tables are planned.
+  - Implemented: `jatuh_tempo` is `NOT NULL` in `0012` and the server refuses an invoice without it (12.1.14).
 
 - **10.2.35 — May an unpaid supplier invoice be deleted after its stock was already added?**
   - Why: stock increases when the invoice is saved (12.6.3), so deleting must either reverse the stock or be forbidden; the prototype deletes freely because it never touches stock.
   - Owner: client. State: **Answered** (4 November 2026).
   - Recorded answer: **an unpaid invoice may be deleted, and the stock it added is taken back.** Deleting writes one `koreksi_masuk` movement per goods line and decrements `items.stok` by the same quantity, all in one transaction, and keeps the audit event so the receipt is still explainable. A paid invoice stays locked and cannot be deleted until an admin cancels its payment first. The delete travels as its own sync operation with the invoice version, so a device cannot delete an invoice another device already paid.
-  - Not implemented yet: the Faktur orderan tables are planned.
+  - Implemented: deleting writes `koreksi_masuk` rows and decrements stock in one transaction (12.1.14).
 
 - **10.2.36 — Where are batch code and expiry date stored?**
   - Why: the prototype keeps both on the invoice line, while the Expired menu later needs the remaining quantity per batch.
   - Owner: client. State: **Answered** (4 November 2026).
   - Recorded answer: **batch and expiry are recorded on the invoice line, and stock stays one number per item.** `purchase_invoice_lines` keeps `batch` and `tanggal_expired`; `items.stok` is never split per batch, so no `batches` table is created. Faktur orderan, Kartu stok, and Expired read the batch and expiry from the received lines, and a disposal or supplier return from Expired reduces the item's single stock number. Exact remaining quantity per batch is therefore not tracked, which the client accepted.
-  - Not implemented yet: the Faktur orderan tables are planned.
+  - Implemented: `batch` and `tanggal_expired` are columns on `purchase_invoice_lines` in `0012` (12.1.14).
 
 - **10.2.37 — Does Tagihan list paid invoices?**
   - Why: the prototype hides paid invoices and shows *Semua faktur sudah lunas* when none remain; their history stays in Faktur orderan.
@@ -634,13 +634,13 @@ These are not blockers for an unrelated first slice. Resolve each before impleme
   - Why: the same item can arrive in two batches or two expiry dates on one supplier invoice, and the prototype allows repeated lines.
   - Owner: client. State: **Answered** (4 November 2026).
   - Recorded answer: **the same item may appear on several lines of one invoice.** Each line stands alone with its own quantity, batch, and expiry, and stock sums every line of that item; the invoice detail keeps the order in which the supplier document listed them. Nothing is merged automatically.
-  - Not implemented yet: the Faktur orderan tables are planned.
+  - Implemented: the server stores every line as sent and keeps its `urutan` (12.1.14).
 
 - **10.2.39 — May a saved invoice be edited while it is unpaid?**
   - Why: the prototype edits an unpaid invoice in place, but its stock has already been added, so an edit has to move stock by the difference instead of starting over.
   - Owner: client. State: **Answered** (4 November 2026).
   - Recorded answer: **an unpaid invoice may be edited.** The server replaces its lines in one transaction and moves stock only by the difference per item: one `masuk` movement when the new quantity is larger, one `koreksi_masuk` when it is smaller, and nothing when the quantity is unchanged. The invoice version rises, header fields may change in the same edit, and the audit event keeps the before and after values. A paid invoice cannot be edited until an admin cancels its payment.
-  - Not implemented yet: the Faktur orderan tables are planned.
+  - Implemented: edits replace the lines and post only the per-item difference (12.1.14).
 
 ### 10.3 Decisions already settled — do not ask again
 
@@ -707,13 +707,13 @@ Goal: prove the approved PWA + Cloudflare architecture with one complete, low-ri
 ### 12.1 Verified current state (3 November 2026)
 
 - **12.1.1** `UI/` contains the client-approved prototype and workflow baseline for all 18 menus, including flows and browser-local workflow simulation. It is not the production source.
-- **12.1.2** `app/` contains the production application for the Barang and reference-data slices: React/Vite PWA, Worker API, D1 migrations, offline outbox, idempotent sync, conflict history, staff administration, recovery codes, and encrypted export/import.
-- **12.1.3** Automated checks pass: `npm run typecheck` is clean, `npm test` runs 76 tests across the Worker and offline suites, and `npm run build` produces the deployable PWA.
+- **12.1.2** `app/` contains the production application for the Barang, reference-data, Penjualan, and Faktur orderan slices: React/Vite PWA, Worker API, D1 migrations, offline outbox, idempotent sync, conflict history, staff administration, recovery codes, and encrypted export/import.
+- **12.1.3** Automated checks pass: `npm run typecheck` is clean, `npm test` runs 81 tests across the Worker and offline suites, and `npm run build` produces the deployable PWA.
 - **12.1.4** The app is deployed as a trial to the client's own Cloudflare account at https://kromafi-apotek.kromafi.workers.dev, with D1 `kromafi-apotek` (`db477559-d51d-40f3-a822-d1cb2c21904e`, region APAC) migrated and a first admin (`admin`) created by `npm run staff:bootstrap -- --remote --username admin`. Staff sign in with a username, not an email.
 - **12.1.5** Workers compatibility is verified on the real `workerd` runtime: `wrangler dev` runs against a local D1 database, and health, sign-in, `401` handling, idempotent sync, and browser reads behave as designed. The earlier `write EOF` fault was an environment defect — a missing Visual C++ 2015–2022 Redistributable (x64) left `workerd.exe` unable to load its UCRT libraries — and installing it fixed the machine.
 - **12.1.6** `workerd` caps PBKDF2 at 100,000 iterations, so the deployed Worker rejected the earlier 210,000-iteration hashes with `500` on every sign-in while local runs stayed green. The setting is now 100,000 — the runtime maximum — and sign-in on the deployed Worker returned `200`. Because older credentials cannot be re-derived, `npm run staff:bootstrap -- --reset` replaces a password and ends its sessions.
 - **12.1.7** A full local backup drill passed: export, restore into an empty database, identical row counts in all seven tables, and the restored database accepted a sign-in and served the same record. Cloudflare Time Travel covers the last 7 days; the export is the portable copy.
-- **12.1.8** Known limits: nine screens are implemented (Penjualan, Barang, Jasa, Petugas, Lemari, Metode pembayaran, Dokter, Distributor, Profil apotek) and the other 9 prototype menus are listed but disabled; the custom domain and second admin are open (10.2.1); backup schedule and retention are open (10.2.2); daily close has no prototype workflow (10.2.4).
+- **12.1.8** Known limits: ten screens are implemented (Penjualan, Faktur orderan, Barang, Jasa, Petugas, Lemari, Metode pembayaran, Dokter, Distributor, Profil apotek) and the other 8 prototype menus are listed but disabled; the custom domain and second admin are open (10.2.1); backup schedule and retention are open (10.2.2); daily close has no prototype workflow (10.2.4).
 - **12.1.9** Selling model confirmed by the client: each buyer uses **their own** Cloudflare account, so one installation means one account, one Worker, one database, and one pharmacy's data. The install sequence in [app/README.md](app/README.md) is the per-buyer procedure.
 - **12.1.10** Migrations `0001`–`0011` are applied on the remote D1 database, and Worker version `ccf2d495-55f6-4bd1-97b6-a2a7070ca8b3` (commit `92432c9`) is live with the reference screens and the shared goods-and-services catalogue. Offline work is attributed to the account that recorded it and cancelled at processing time when that account was already deactivated (10.2.12); the device now drops such work silently (10.2.13). A password reset is offered and accepted only for an account that is Aktif (10.2.14). Live checks after that deploy: `/api/health` `200`, `/api/sync/snapshot` and `POST /api/staff/:id/password` without a session `401`, and the served bundle carries the new Jasa, Metode pembayaran, Profil apotek, and Petugas text.
 
@@ -723,7 +723,7 @@ Goal: prove the approved PWA + Cloudflare architecture with one complete, low-ri
 
 - **12.1.13** Worker version `304f39fa-b48d-431f-bc2a-f02e43376e93` serves the 4 November 2026 build: the Monday-first calendar on the Penjualan filter and nota form, the square queue badge, no *Menunggu* chips, check-only confirmations, optimistic saves, and sessions without a time limit (10.2.32). Migration `0011_sessions_no_expiry.sql` dropped `sessions.expires_at` on the local and the remote database. Live checks: `/api/health` `200`, `/api/me` without a cookie `401`, the served bundle is `assets/index-C-NGaGsf.js`, it carries the calendar labels, and it no longer contains *Menunggu*.
 - **12.1.14** Worker version `b3327128-fe42-485e-ae77-cd1627682458` serves the 4 November 2026 Faktur orderan build: supplier invoices with their lines, stock receipts, catalogue price updates (10.2.33), a required due date (10.2.34), delete with stock return (10.2.35), edits by difference (10.2.39), and payment locking. Migration `0012_purchase_invoices.sql` was applied to the local and the remote database. Live checks: `/api/health` `200`, `/api/sync/snapshot` without a cookie `401`, the served bundle is `assets/index-BDjJM0P2.js` and it carries the *Faktur orderan* menu.
-- **12.1.15** Worker version `0e8f1d45-bd1e-4b0b-9726-5c7fd6bc05bf` serves the 4 November 2026 build that aligns the Faktur orderan screen with the approved prototype: the two-field filter card with the month and distributor pickers, the three-line invoice row with the status pill, the detail modal with icon actions and the green *Lunas* button, the invoice form with the goods list above the fields, the separate goods modal with its price hints and read-only totals, and the delete confirmation dialog. Live bundle: `assets/index-DKkVobnH.js`.
+- **12.1.15** Worker version `0e8f1d45-bd1e-4b0b-9726-5c7fd6bc05bf` serves the 4 November 2026 build that aligns the Faktur orderan screen with the approved prototype: the two-field filter card with the month and distributor pickers, the three-line invoice row with the status pill, the detail modal with icon actions and the green *Lunas* button, the invoice form with the goods list above the fields, the separate goods modal with its price hints and read-only totals, and the delete confirmation dialog. Live bundle: `assets/index-DKkVobnH.js`. Typecheck, 81 tests, and the production build pass; commit `8bcd35b`.
 
 ### 12.2 Target outcome for version 1.0
 
@@ -776,14 +776,14 @@ The approved prototype is the default baseline for version 1.0 screen scope and 
 - **12.4.2 Lupa password** — Provide a secure recovery or admin reset flow. The prototype reports that reset links are unavailable because no server or email service is configured. — **Implemented** as one-time recovery codes (10.2.5) through `POST /api/recovery/reset`, which the login screen no longer links (10.2.18); an admin can also reset a password from the Petugas detail (10.2.14)
 - **12.4.3 Petugas** — List and maintain staff accounts, roles, active status, and credentials; account management is admin-only and staff can view their own record. — **Implemented**
 - **12.4.4 Barang** — Search, list, create, update, and deactivate items with name, unit, cabinet, prices, and stock visibility; record every stock edit as an audited movement. — **Implemented** for items; stock movements belong to phase 5
-- **12.4.5 Distributor** — Maintain supplier records and active status for purchasing; existing invoices keep their recorded supplier name. — **Planned**
-- **12.4.6 Dokter** — Maintain doctor records and active status; optional doctor selection in sales. — **Planned**
-- **12.4.7 Jasa** — Maintain service names, prices, and active status; active services are selectable in sales and consume no stock. — **Planned**
-- **12.4.8 Metode pembayaran** — Maintain active payment methods; one method per sale, no split tender. — **Planned**
-- **12.4.9 Lemari** — Maintain cabinet names and active status; retain historical item references when a cabinet changes or is deactivated. — **Planned**
-- **12.4.10 Profil apotek** — Read and update the pharmacy name and address used by the interface and receipts; admin-only edit. — **Planned**
-- **12.4.11 Penjualan** — Search and select items/services; save sale headers and lines, prices, quantities, discounts, payment, patient/doctor details, cashier, and receipt data. Preserve the prototype's lock/unlock/delete/print flow; the API calculates totals and records stock movements for goods, not services; batch is optional and does not determine stock allocation. Patient name is stored permanently when filled in (10.2.7). — **Planned**
-- **12.4.12 Faktur orderan** — Record supplier invoices and received goods with supplier, dates, lines, quantities, cost, discount, tax, margin, selling price, batch, and expiry. Stock increases on save regardless of payment; box lines convert to units; the prototype's percentage discount/tax and margin calculations apply. — **Planned**
+- **12.4.5 Distributor** — Maintain supplier records and active status for purchasing; existing invoices keep their recorded supplier name. — **Implemented**
+- **12.4.6 Dokter** — Maintain doctor records and active status; optional doctor selection in sales. — **Implemented**
+- **12.4.7 Jasa** — Maintain service names, prices, and active status; active services are selectable in sales and consume no stock. — **Implemented**
+- **12.4.8 Metode pembayaran** — Maintain active payment methods; one method per sale, no split tender. — **Implemented**
+- **12.4.9 Lemari** — Maintain cabinet names and active status; retain historical item references when a cabinet changes or is deactivated. — **Implemented**
+- **12.4.10 Profil apotek** — Read and update the pharmacy name and address used by the interface and receipts; admin-only edit. — **Implemented**
+- **12.4.11 Penjualan** — Search and select items/services; save sale headers and lines, prices, quantities, discounts, payment, patient/doctor details, cashier, and receipt data. Preserve the prototype's lock/unlock/delete/print flow; the API calculates totals and records stock movements for goods, not services; batch is optional and does not determine stock allocation. Patient name is stored permanently when filled in (10.2.7). — **Implemented**; deleting a saved nota is still open (10.2.31)
+- **12.4.12 Faktur orderan** — Record supplier invoices and received goods with supplier, dates, lines, quantities, cost, discount, tax, margin, selling price, batch, and expiry. Stock increases on save regardless of payment; box lines convert to units; the prototype's percentage discount/tax and margin calculations apply. — **Implemented** (12.1.14, 12.1.15); the screen follows the approved prototype and the catalogue prices follow each receipt (10.2.33)
 - **12.4.13 Tagihan** — List unpaid supplier invoices by supplier and due month, show totals and due status, and record payment dates. Invoices are unpaid or paid in full; admins may cancel a recorded payment. — **Planned**
 - **12.4.14 Stok opname** — Record physical count, system count, variance, period, date, and staff; update stock and preserve the variance; one opname per item per month; stale counts must be reopened and recounted. — **Planned**
 - **12.4.15 Kartu stok** — Query an item movement ledger with dates, quantity, category, source document, batch/expiry, staff, and notes; combine sales, invoices, opname, and expired transactions; keep corrections auditable. — **Planned**
@@ -792,7 +792,7 @@ The approved prototype is the default baseline for version 1.0 screen scope and 
 - **12.4.18 Pareto** — Query revenue by item or service for up to 31 days and show each item's share of total revenue using net line revenue after line discount. — **Planned**
 - **12.4.19 Forecast** — Query sales quantities and current stock to estimate daily demand and coverage with a default 30-day window, 92-day maximum, active-item filter; services excluded. — **Planned**
 - **12.4.20 Barang minus** — Show items with negative stock as a read-only monitoring list from canonical production stock data. — **Planned**
-- **12.4.21 Sync indicator** — Show queue status, last sync, pending operations, and conflicts; only Worker-confirmed changes are final. — **Implemented** for the Barang slice
+- **12.4.21 Sync indicator** — Show queue status, last sync, pending operations, and conflicts; only Worker-confirmed changes are final. — **Implemented** across the synced screens
 
 ### 12.5 Backend-wide requirements
 
